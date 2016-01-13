@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Play The Game</title>
+    <style>
+        #board_link {
+            color:#000;
+            color: rgba(0, 0, 0, 0);
+            display:block;
+            font-size:10px;
+            height:GRIDSIZEpx;
+            position:relative;
+            text-decoration:none;
+            text-shadow:0 1px #fff;
+            width:GRIDSIZEpx;
+        }
+        #game_board { border:5px solid #333; }
+        td {
+            box-shadow:inset 0 0 0 1px #fff;
+            -moz-box-shadow:inset 0 0 0 1px #fff;
+            -webkit-box-shadow:inset 0 0 0 1px #fff;
+            height:GRIDSIZEpx;
+            text-align:center;
+            vertical-align:middle;
+            width:GRIDSIZEpx;
+        }
+        td.tile0 {
+            background:#fff;
+            background:-moz-linear-gradient(top, #fff, #ccc);
+            background:-webkit-gradient(linear,0 0, 0 100%, from(#fff), to(#ccc));
+            box-shadow:inset 0 0 10px rgba(0,0,0,.4);
+            -moz-box-shadow:inset 0 0 10px rgba(0,0,0,.4);
+            -webkit-box-shadow:inset 0 0 10px rgba(0,0,0,.4);
+        }
+        td.tile1 {
+            background:#00ff00;
+            background:-moz-linear-gradient(top, #00ff00, #008000);
+            background:-webkit-gradient(linear,0 0, 0 100%, from(#00ff00), to(#008000));
+            box-shadow:inset 0 0 10px rgba(0,0,0,.4);
+            -moz-box-shadow:inset 0 0 10px rgba(0,0,0,.4);
+            -webkit-box-shadow:inset 0 0 10px rgba(0,0,0,.4);
+        }
+        td.tile2 {
+            background:#ff0000;
+            background:-moz-linear-gradient(top, #ff0000, #800000);
+            background:-webkit-gradient(linear,0 0, 0 100%, from(#ff0000), to(#800000));
+            box-shadow:inset 0 0 10px rgba(0,0,0,.4);
+            -moz-box-shadow:inset 0 0 10px rgba(0,0,0,.4);
+            -webkit-box-shadow:inset 0 0 10px rgba(0,0,0,.4);
+        }
+        td.tile-1 {
+            background:#404040;
+            background:-moz-linear-gradient(top, #404040, #000000);
+            background:-webkit-gradient(linear,0 0, 0 100%, from(#404040), to(#000000));
+            box-shadow:inset 0 0 10px rgba(0,0,0,.4);
+            -moz-box-shadow:inset 0 0 10px rgba(0,0,0,.4);
+            -webkit-box-shadow:inset 0 0 10px rgba(0,0,0,.4);
+        }
+    </style>
+    <script>
+        var waitingForSecondClick;
+        function refreshTimeout()
+        {
+            var turnInfo = document.getElementById("turnInfo").innerHTML.match(/:(.*)\n/m);
+            if("PLAYER" != turnInfo[1].toLowerCase())
+            {
+                window.setTimeout(function(){
+                    window.location.href = "/game/HASHCODE/PLAYER";
+                }, 3000)
+            }
+        }
+        function buildLink(xClick, yClick)
+        {
+            if(!!waitingForSecondClick)
+            {
+                //verify inputs are within acceptable bounds
+                var xCheck = (xClick - waitingForSecondClick[0]) == 0 || Math.abs((xClick - waitingForSecondClick[0])) == 2;
+                var yCheck = (yClick - waitingForSecondClick[1]) == 0 || Math.abs((yClick - waitingForSecondClick[1])) == 2;
+                var combinedCheck = xCheck && yCheck && !((xClick - waitingForSecondClick[0]) == 0 && (yClick - waitingForSecondClick[1]) == 0);
+                if(combinedCheck)
+                {
+                    window.location.href = "/game/HASHCODE/PLAYER/" + (waitingForSecondClick[0] + 2) + "/" + (waitingForSecondClick[1] + 2) + "/" + (xClick - waitingForSecondClick[0]) + "/" + (yClick - waitingForSecondClick[1]);
+                    return;
+                }
+            }
+            console.log(xClick + " " + yClick);
+            var table = document.getElementById("game_board");
+            var tableRows = table.rows
+            table = [[]];
+            for(var x = 0; x < tableRows.length; x++)
+            {
+                var tableCells = tableRows[x].cells;
+                var tableRow = [];
+                for(var y = 0; y < tableCells.length; y++)
+            {
+                    tableRow[y] = tableCells[y].className;
+                }
+                table[x] = tableRow;
+            }
+
+            console.log(table);
+            var playerIndex = "tile0";
+            if("PLAYER" == "green")
+            {
+                playerIndex = "tile1";
+            }
+            else if("PLAYER" == "red")
+            {
+                playerIndex = "tile2";
+            }
+
+            //simple move, i.e. create new token
+            var legalMove = false;
+            for(var i = -1; i <= 1 && !legalMove; i++)
+            {
+                for (var j = -1; j <= 1 && !legalMove; j++)
+                {
+                    if(!!table[xClick+i] && table[xClick+i][yClick+j] == playerIndex)
+                    {
+                        window.location.href = "/game/HASHCODE/PLAYER/" + (xClick + 2) + "/" + (yClick + 2);
+                        return;
+                    }
+                }
+            }
+
+            //jump move, check if there is more than one possible origin location
+            var legalMoveCount = 0;
+            for(var i = -2; i <= 2; i+=2)
+            {
+                for (var j = -2; j <= 2; j+=2)
+                {
+                    if(!!table[xClick+i] && table[xClick+i][yClick+j] == playerIndex)
+                    {
+                        legalMoveCount++;
+                    }
+                }
+            }
+
+            //only one possible intended move, so no extra information is required to describe it
+            if(legalMoveCount==1)
+            {
+                window.location.href = "/game/HASHCODE/PLAYER/" + (xClick + 2) + "/" + (yClick + 2);
+                return;
+            }
+            //multiple possible moves, we need to collect and send more information to know which move is intended
+            else if(legalMoveCount > 1)
+            {
+                document.getElementById("info_box").innerHTML = "<p>Where are you jumping from?</p>";
+                waitingForSecondClick = [xClick, yClick];
+                return;
+            }
+            for(var i = -2; i <= 2 && !legalMove; i+=2)
+            {
+                for (var j = -2; j <= 2 && !legalMove; j+=2)
+                {
+                    if(!!table[xClick+i] && table[xClick+i][yClick+j] == playerIndex)
+                    {
+                        window.location.href = "/game/HASHCODE/PLAYER/" + (xClick + 2) + "/" + (yClick + 2) + "/" + j + "/" + i;
+                        return;
+                    }
+                }
+            }
+		}
+		</script>
+    </head>
+    <body onload="refreshTimeout()">
+        <table id="game_board" cellpadding="0" cellspacing="0">
+            <!--INSERT_GAME_BOARD-->
+        </table>
+        <!--INSERT_TURN_INFO-->
+        <p id=info_box></p>
+    </body>
+</html>
