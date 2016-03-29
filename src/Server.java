@@ -3,7 +3,10 @@ import spark.Spark;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Paths;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.Map;
 
 public class Server
 {
@@ -12,12 +15,36 @@ public class Server
     public static void main(String[] args) throws IOException {
         String indexHTML = new String(Files.readAllBytes(Paths.get("index.html")));
         String createHTML = new String(Files.readAllBytes(Paths.get("create.html")));
+        String webSocketChat = new String(Files.readAllBytes(Paths.get("websocketChat.html")));
 
         Spark.port(80);
 
+        Spark.externalStaticFileLocation("public");
+
+        Spark.webSocket("/game", SocketGameNetworkLayer.class);
+
         Spark.get("/create-submit", (request, response) ->
         {
-            Game newGame = new Game(request.queryParams("name"), Integer.valueOf(request.queryParams("size")));
+            String name = request.queryParams("name");
+            if(!name.matches("[a-zA-Z0-9_\\-&(),.+ ]*"))
+            {
+                //TODO:response.status();
+                return "Input rejected";
+            }
+            int size;
+            try {
+                size = Integer.valueOf(request.queryParams("size"));
+                if(size < 5)
+                {
+                    throw new NumberFormatException("Value too small, rejected");
+                }
+            }
+            catch (NumberFormatException e)
+            {
+                //TODO:response.status();
+                return "Input rejected";
+            }
+            Game newGame = new Game(name, size);
             games.put(newGame.hashCode(), newGame);
             //response.redirect("/game/" + newGame.hashCode());
             response.redirect("/");
@@ -50,7 +77,12 @@ public class Server
 
         Spark.get("/game/:gameID", (request, response) ->
         {
-            return "";
+            return "temporarily empty, TODO: add 'lobby'";
+        });
+
+        Spark.get("/game", (request, response) ->
+        {
+            return webSocketChat;
         });
 
         //default route, home page
@@ -62,27 +94,24 @@ public class Server
             Collections.sort(gamesList);
             for(Game game : gamesList)
             {
-                gameList.append(
-            "			" + game.getName() + "\t<a href=\"/game/" + game.hashCode() + "/green\">Green</a>\t<a href=\"/game/" + game.hashCode() + "/red\">Red</a>\n" +
-            "			</br>\n"
-                );
+                gameList.append("			").append(game.getName()).append("\t<a href=\"/game/").append(game.hashCode()).append("/green\">Green</a>\t<a href=\"/game/").append(game.hashCode()).append("/red\">Red</a>\n").append("			</br>\n");
             }
             return indexHTML.replace("<!--INSERT_GAME_LIST-->", gameList.toString());
         });
     }
 
-    public Game getGame(int gameHash)
+    public static Game getGame(int gameHash)
     {
         return games.get(gameHash);
     }
 
-    public Game createGame(String name, int size) throws IOException {
+    public static Game createGame(String name, int size) throws IOException {
         Game newGame = new Game(name, size);
         games.put(newGame.hashCode(), newGame);
         return newGame;
     }
 
-    public void EndGame(int finishedGameHash)
+    public static void EndGame(int finishedGameHash)
     {
         games.remove(finishedGameHash);
     }
