@@ -15,7 +15,7 @@ public class Server
     public static void main(String[] args) throws IOException {
         String indexHTML = new String(Files.readAllBytes(Paths.get("index.html")));
         String createHTML = new String(Files.readAllBytes(Paths.get("create.html")));
-        String webSocketChat = new String(Files.readAllBytes(Paths.get("websocketChat.html")));
+        String webSocketChatHTML = new String(Files.readAllBytes(Paths.get("webSocketChat.html")));
 
         Spark.port(80);
 
@@ -23,7 +23,7 @@ public class Server
 
         Spark.webSocket("/game", SocketGameNetworkLayer.class);
 
-        Spark.get("/create-submit", (request, response) ->
+        Spark.get("/create/submit", (request, response) ->
         {
             String name = request.queryParams("name");
             if(!name.matches("[a-zA-Z0-9_\\-&(),.+ ]*"))
@@ -44,10 +44,7 @@ public class Server
                 //TODO:response.status();
                 return "Input rejected";
             }
-            Game newGame = new Game(name, size);
-            games.put(newGame.hashCode(), newGame);
-            //response.redirect("/game/" + newGame.hashCode());
-            response.redirect("/");
+            response.redirect("/game/" + createGame(name, size).hashCode());
             return "success";
         });
 
@@ -82,7 +79,7 @@ public class Server
 
         Spark.get("/game", (request, response) ->
         {
-            return webSocketChat;
+            return webSocketChatHTML;
         });
 
         //default route, home page
@@ -94,7 +91,12 @@ public class Server
             Collections.sort(gamesList);
             for(Game game : gamesList)
             {
-                gameList.append("			").append(game.getName()).append("\t<a href=\"/game/").append(game.hashCode()).append("/green\">Green</a>\t<a href=\"/game/").append(game.hashCode()).append("/red\">Red</a>\n").append("			</br>\n");
+                gameList.append("			")
+                        .append(game.getName())
+                        .append("\t<a href=\"/game/")
+                        .append(game.hashCode())
+                        .append("\">Join</a>")
+                        .append("</br>\n");
             }
             return indexHTML.replace("<!--INSERT_GAME_LIST-->", gameList.toString());
         });
@@ -105,7 +107,8 @@ public class Server
         return games.get(gameHash);
     }
 
-    public static Game createGame(String name, int size) throws IOException {
+    public static Game createGame(String name, int size) throws IOException
+    {
         Game newGame = new Game(name, size);
         games.put(newGame.hashCode(), newGame);
         return newGame;

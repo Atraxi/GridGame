@@ -6,6 +6,7 @@ public class Game implements Comparable<Game>
 {
 	private final String name;
 	private final int[][] board;
+	/** The visual size of each square of the grid */
 	private static final int GRIDSIZE = 16;
 	private int currentPlayerTurn = 1;
 	private int remainingMoves = 3;
@@ -22,25 +23,28 @@ public class Game implements Comparable<Game>
 	
 	public String draw(String player)
 	{
-		StringBuilder html = new StringBuilder();
+		StringBuilder gameBoardHTML = new StringBuilder();
 		for(int x = 2; x < board.length - 2; x++)
 		{
-			html.append(
+			gameBoardHTML.append(
 		"			<tr>\n"
 			);
 			for(int y = 2; y < board[x].length - 2; y++)
 			{
-				html.append(
+				gameBoardHTML.append(
 		"				<td class=\"tile" + board[x][y] + "\" width=10 height=10 onclick=\"buildLink(" + (x - 2) + ", " + (y - 2) + ")\" onmouseover=\"\" style=\"cursor: pointer;\">\n" +
 		"				</td>\n"
 				);
 			}
-			html.append(
+			gameBoardHTML.append(
 		"		</tr>\n"
 			);
 		}
-		return gameBoard.replace("HASHCODE", String.valueOf(this.hashCode())).replace("PLAYER", player).replace("<!--INSERT_GAME_BOARD-->", html.toString()).replace("<!--INSERT_TURN_INFO-->",
-		"    <pre id=\"turnInfo\">Current player:" + (currentPlayerTurn==1?"Green":"Red") + "\nTurns remaining:" + remainingMoves + "</pre>"
+		return gameBoard.replace("HASHCODE", String.valueOf(this.hashCode()))
+						.replace("PLAYER", player)
+						.replace("<!--INSERT_GAME_BOARD-->", gameBoardHTML.toString())
+						.replace("<!--INSERT_TURN_INFO-->",
+						"    <pre id=\"turnInfo\">Current player:" + (currentPlayerTurn==1?"Green":"Red") + "\nTurns remaining:" + remainingMoves + "</pre>"
 		);
 	}
 	

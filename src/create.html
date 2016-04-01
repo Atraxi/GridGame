@@ -3,17 +3,31 @@
 <head>
     <meta charset="UTF-8">
     <title>Create</title>
+    <script>
+    function validateForm() {
+        var x = document.forms["newGameForm"]["name"].value;
+        if (x == null || x == "" || /[^a-zA-Z0-9_\\-&(),.+ ]/.test(x)) {
+            alert("Name must be filled out");
+            return false;
+        }
+        x = document.forms["newGameForm"]["size"].value;
+        if (x == null || x == "" || /[^0-9]/.test(x) || x < 5) {
+            alert("Size must be a number greater than 5");
+            return false;
+        }
+    }
+</script>
 </head>
 <body>
     <h1>Create a new game</h1>
-    <form action="/create-submit">
+    <form name="newGameForm" action="/create/submit" onsubmit="return validateForm()">
         <b>Game Name</b>
         <br/>
-        <input type="text" name="name">
+        <input type="text" name="name" required>
         <br/>
         <b>Size of the game board</b>
         <br/>
-        <input type="text" name="size" value="10">
+        <input type="text" name="size" value="10" required>
         <br/>
         <input type="submit" name="create">
     </form>
