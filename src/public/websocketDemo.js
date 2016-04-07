@@ -1,12 +1,11 @@
-//Establish the WebSocket connection and set up event handlers
 var webSocket;
 
-//Initialize the websocket
+//Initialize the WebSocket connection and set up event handlers
 id("initSocket").addEventListener("click", function () {
     webSocket = new WebSocket("ws://" + location.hostname + "/gamesocket?test=asdf&test=qwer&otherTest=ghjk");
     webSocket.onmessage = function (msg) { parseMessage(msg); };
     webSocket.onclose = function () { console.log("WebSocket connection closed"); };
-    webSocket.onopen = function () {sendMessage("connection open"); };
+    webSocket.onopen = function () { sendMessage("connection open"); };
 });
 
 //Initialize relevant session data

@@ -1,3 +1,5 @@
+import org.json.JSONObject;
+
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Paths;
@@ -47,7 +49,19 @@ public class Game implements Comparable<Game>
 						"    <pre id=\"turnInfo\">Current player:" + (currentPlayerTurn==1?"Green":"Red") + "\nTurns remaining:" + remainingMoves + "</pre>"
 		);
 	}
-	
+
+	public void update(String jsonMessage, String player)
+	{
+		JSONObject jsonObject = new JSONObject(jsonMessage);
+		JSONObject position = jsonObject.getJSONObject("position");
+		JSONObject originPosition = jsonObject.getJSONObject("originPosition");
+		update(position.getInt("x"),
+				position.getInt("y"),
+				player,
+			   	originPosition.optInt("x"),
+			   	originPosition.optInt("y"));
+	}
+
 	public void update(int x, int y, String player, int xOriginOffset, int yOriginOffset)
 	{
 		//TODO sanitize

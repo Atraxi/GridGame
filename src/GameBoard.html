@@ -61,16 +61,24 @@
     </style>
     <script>
         var waitingForSecondClick;
-        function refreshTimeout()
+
+        //Initialize the WebSocket connection and set up event handlers
+        var webSocket = new WebSocket("ws://" + location.hostname + "/gamesocket?game=HASHCODE&player=PLAYER");
+        webSocket.onmessage = function (msg) { parseMessage(message); };
+        webSocket.onclose = function () { console.log("WebSocket connection closed"); };
+        webSocket.onopen = function () { sendMessage("connection open"); };
+
+        function parseMessage(message)
         {
-            var turnInfo = document.getElementById("turnInfo").innerHTML.match(/:(.*)\n/m);
-            if("PLAYER" != turnInfo[1].toLowerCase())
-            {
-                window.setTimeout(function(){
-                    window.location.href = "/game/HASHCODE/PLAYER";
-                }, 3000)
-            }
+            var data = JSON.parse(message.data);
+
         }
+
+        function updateOpponent(x, y)
+        {
+
+        }
+
         function buildLink(xClick, yClick)
         {
             if(!!waitingForSecondClick)

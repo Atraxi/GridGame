@@ -15,7 +15,8 @@ import java.util.Map;
 
 @WebSocket
 public class SocketGameNetworkLayer {
-    private static HashMap<Session, Game> games = new HashMap<Session, Game>();
+    //A game can appear multiple times via different sessions
+    private static HashMap<Session, GameDetail> games = new HashMap<Session, GameDetail>();
 
     @OnWebSocketConnect
     public void connect(Session session)
@@ -28,10 +29,10 @@ public class SocketGameNetworkLayer {
         try
         {
             gamehash = Integer.parseInt(paramMap.get("gamehash").get(0));
-
         }
         catch (Exception e)
         {
+            e.printStackTrace();
             try
             {
                 session.getRemote().sendString("Error accessing or parsing gamehash");
@@ -42,11 +43,29 @@ public class SocketGameNetworkLayer {
             }
             return;
         }
+        String player;
+        try
+        {
+            player = paramMap.get("player").get(0);
+        }
+        catch (Exception e)
+        {
+            e.printStackTrace();
+            try
+            {
+                session.getRemote().sendString("Error accessing or parsing player");
+            }
+            catch (IOException e1)
+            {
+                e1.printStackTrace();
+            }
+            return;
+        }
 
         Game game = Server.getGame(gamehash);
-        if(game != null)
+        if(game != null && player != null)
         {
-            games.put(session, Server.getGame(gamehash));
+            games.put(session, new GameDetail(player,Server.getGame(gamehash)));
         }
         else
         {
@@ -73,16 +92,19 @@ public class SocketGameNetworkLayer {
     @OnWebSocketMessage
     public void message(Session session, String message)
     {
-        System.out.println("received:" + message);
-        try {
-            session.getRemote().sendString("{\"received\":\"" + message + "\"}");
-        } catch (IOException e) {
-            e.printStackTrace();
+        GameDetail game = games.get(session);
+        game.game.update(message, game.player);
+    }
+
+    private class GameDetail
+    {
+        private String player;
+        private Game game;
+
+        private GameDetail(String player, Game game)
+        {
+            this.player = player;
+            this.game = game;
         }
-
-
-
-        Game game = games.get(session);
-        //game.update();
     }
 }
