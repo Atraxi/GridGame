@@ -21,7 +21,7 @@ public class Server
 
         Spark.externalStaticFileLocation("public");
 
-        Spark.webSocket("/game", SocketGameNetworkLayer.class);
+        Spark.webSocket("/gamesocket", SocketGameNetworkLayer.class);
 
         Spark.get("/create/submit", (request, response) ->
         {
@@ -44,7 +44,8 @@ public class Server
                 //TODO:response.status();
                 return "Input rejected";
             }
-            response.redirect("/game/" + createGame(name, size).hashCode());
+            //response.redirect("/game/" + createGame(name, size).hashCode());
+            createGame(name, size);response.redirect("/");
             return "success";
         });
 
@@ -53,19 +54,20 @@ public class Server
             return createHTML;
         });
 
-        Spark.get("/game/:gameID/:player/:x/:y/:xOffset/:yOffset", (request, response) ->
-        {
-            Game game = games.get(Integer.parseInt(request.params(":gameID")));
-            game.update(Integer.parseInt(request.params(":x")), Integer.parseInt(request.params(":y")), request.params(":player"), Integer.parseInt(request.params(":xOffset")), Integer.parseInt(request.params(":yOffset")));
-            return game.draw(request.params(":player"));
-        });
-
-        Spark.get("/game/:gameID/:player/:x/:y", (request, response) ->
-        {
-            Game game = games.get(Integer.parseInt(request.params(":gameID")));
-            game.update(Integer.parseInt(request.params(":x")), Integer.parseInt(request.params(":y")), request.params(":player"), 1, 1);
-            return game.draw(request.params(":player"));
-        });
+//        Spark.get("/game/:gameID/:player/:x/:y/:xOffset/:yOffset", (request, response) ->
+//        {
+//            Game game = games.get(Integer.parseInt(request.params(":gameID")));
+//            game.update(Integer.parseInt(request.params(":x")), Integer.parseInt(request.params(":y")), request.params(":player"), Integer.parseInt(request.params(":xOffset")), Integer.parseInt(request.params(":yOffset")));
+//            return game.draw(request.params(":player"));
+//        });
+//
+//        Spark.get("/game/:gameID/:player/:x/:y", (request, response) ->
+//        {
+//            Game game = games.get(Integer.parseInt(request.params(":gameID")));
+//            game.update(Integer.parseInt(request.params(":x")), Integer.parseInt(request.params(":y")), request.params(":player"), 1, 1);//1,1 is an impossible scenario, and
+// is detected then discarded if the expected simpler move doesn't apply
+//            return game.draw(request.params(":player"));
+//        });
 
         Spark.get("/game/:gameID/:player", (request,response) ->
         {

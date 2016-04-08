@@ -15,7 +15,6 @@ import java.util.Map;
 
 @WebSocket
 public class SocketGameNetworkLayer {
-    //A game can appear multiple times via different sessions
     private static HashMap<Session, GameDetail> games = new HashMap<Session, GameDetail>();
 
     @OnWebSocketConnect
@@ -94,6 +93,23 @@ public class SocketGameNetworkLayer {
     {
         GameDetail game = games.get(session);
         game.game.update(message, game.player);
+    }
+
+    public static void sendMessage(Game game, String player, String message)
+    {//find the session for the player+game combo if it exists. Not elegant but it works and there aren't any better options I know of
+        games.entrySet().stream().filter(
+                (sessionGameDetailEntry) -> sessionGameDetailEntry.getValue().game == game && sessionGameDetailEntry.getValue().player.equals(player)).findFirst().ifPresent(
+                     sessionGameDetailEntry ->
+                     {
+                         try
+                         {
+                             sessionGameDetailEntry.getKey().getRemote().sendString(message);
+                         }
+                         catch (IOException e)
+                         {
+                             e.printStackTrace();
+                         }
+                     });
     }
 
     private class GameDetail

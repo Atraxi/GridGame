@@ -51,7 +51,7 @@ public class Game implements Comparable<Game>
 	}
 
 	public void update(String jsonMessage, String player)
-	{
+	{//the current player turn is checked before any meaningful change of state, thus it does not matter which player has sent through data
 		JSONObject jsonObject = new JSONObject(jsonMessage);
 		JSONObject position = jsonObject.getJSONObject("position");
 		JSONObject originPosition = jsonObject.getJSONObject("originPosition");
@@ -66,16 +66,18 @@ public class Game implements Comparable<Game>
 	{
 		//TODO sanitize
 		//convert player string to integer representation
-		int playerIndex = 0;
-		if(player.equals("green"))
+		int playerIndex;
+		switch (player)
 		{
-			playerIndex = 1;
+			case "green":
+				playerIndex = 1;
+				break;
+			case "red":
+				playerIndex = 2;
+				break;
+			default:
+				return;
 		}
-		else if(player.equals("red"))
-		{
-			playerIndex = 2;
-		}
-		else return;
 
         //check for a known to be irrelevant click
         if(board[x][y] == -1 || board[x][y] == playerIndex)
@@ -83,7 +85,7 @@ public class Game implements Comparable<Game>
             return;
         }
 		
-		//check which players turn it is, and if they are at the end of their turn
+		//check which players turn it is; if the previous move was the end of their turn, change the current player
 		if(remainingMoves < 1)
 		{
 			remainingMoves = 3;
@@ -110,6 +112,7 @@ public class Game implements Comparable<Game>
                             remainingMoves = 3;
                             currentPlayerTurn = currentPlayerTurn==1?2:1;
                         }
+						updateOpponent(x, y, player, xOriginOffset, yOriginOffset);
                         return;
 					}
 					else if(board[x][y] != playerIndex && board[x][y] != -1)
@@ -207,7 +210,18 @@ public class Game implements Comparable<Game>
 			}
 		}
 	}
-	
+
+	private void updateOpponent(int x, int y, String player, int xOriginOffset, int yOriginOffset)
+	{
+		JSONObject jsonObject = new JSONObject();
+		String jsonMessage = jsonObject.put("position", new JSONObject().put("x", x)
+																		.put("y", y))
+									   .put("originPosition", new JSONObject().put("x", xOriginOffset)
+																			  .put("y", yOriginOffset))
+									   .toString();
+		SocketGameNetworkLayer.sendMessage(this, player, jsonMessage);
+	}
+
 	public String getName()
 	{
 		return name;

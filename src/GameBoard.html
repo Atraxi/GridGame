@@ -63,20 +63,29 @@
         var waitingForSecondClick;
 
         //Initialize the WebSocket connection and set up event handlers
-        var webSocket = new WebSocket("ws://" + location.hostname + "/gamesocket?game=HASHCODE&player=PLAYER");
-        webSocket.onmessage = function (msg) { parseMessage(message); };
+        var webSocket = new WebSocket("ws://" + location.hostname + "/gamesocket?gamehash=HASHCODE&player=PLAYER");
+        webSocket.onmessage = function (message) { parseMessage(message); };
         webSocket.onclose = function () { console.log("WebSocket connection closed"); };
-        webSocket.onopen = function () { sendMessage("connection open"); };
+        //webSocket.onopen = function () { sendMessage("connection open"); };
 
         function parseMessage(message)
         {
+            console.log("Message received");
+            console.log(message);
             var data = JSON.parse(message.data);
+        }
+
+        function update(x, y, player)
+        {
 
         }
 
-        function updateOpponent(x, y)
-        {
-
+        //Send a message if it's not empty, then clear the input field
+        function sendMessage(payload) {
+            var jsonMessage = JSON.stringify(payload);
+            if (jsonMessage !== "") {
+                webSocket.send(jsonMessage);
+            }
         }
 
         function buildLink(xClick, yClick)
@@ -89,7 +98,10 @@
                 var combinedCheck = xCheck && yCheck && !((xClick - waitingForSecondClick[0]) == 0 && (yClick - waitingForSecondClick[1]) == 0);
                 if(combinedCheck)
                 {
-                    window.location.href = "/game/HASHCODE/PLAYER/" + (waitingForSecondClick[0] + 2) + "/" + (waitingForSecondClick[1] + 2) + "/" + (xClick - waitingForSecondClick[0]) + "/" + (yClick - waitingForSecondClick[1]);
+                    //window.location.href = "/game/HASHCODE/PLAYER/" + (waitingForSecondClick[0] + 2) + "/" + (waitingForSecondClick[1] + 2) + "/" + (xClick -
+                    //waitingForSecondClick[0]) + "/" + (yClick - waitingForSecondClick[1]);
+                    sendMessage({game:HASHCODE, player:"PLAYER", position:{x:waitingForSecondClick[0] + 2,y:waitingForSecondClick[1] + 2},originPosition:{x:xClick -
+                    waitingForSecondClick[0],y:yClick - waitingForSecondClick[1]}});
                     return;
                 }
             }
@@ -127,7 +139,8 @@
                 {
                     if(!!table[xClick+i] && table[xClick+i][yClick+j] == playerIndex)
                     {
-                        window.location.href = "/game/HASHCODE/PLAYER/" + (xClick + 2) + "/" + (yClick + 2);
+                        //window.location.href = "/game/HASHCODE/PLAYER/" + (xClick + 2) + "/" + (yClick + 2);
+                        sendMessage({game:HASHCODE, player:"PLAYER", position:{x:xClick + 2,y:yClick + 2},originPosition:{}});
                         return;
                     }
                 }
@@ -149,7 +162,8 @@
             //only one possible intended move, so no extra information is required to describe it
             if(legalMoveCount==1)
             {
-                window.location.href = "/game/HASHCODE/PLAYER/" + (xClick + 2) + "/" + (yClick + 2);
+                //window.location.href = "/game/HASHCODE/PLAYER/" + (xClick + 2) + "/" + (yClick + 2);
+                sendMessage({game:HASHCODE, player:"PLAYER", position:{x:xClick + 2,y:yClick + 2},originPosition:{}});
                 return;
             }
             //multiple possible moves, we need to collect and send more information to know which move is intended
@@ -165,15 +179,28 @@
                 {
                     if(!!table[xClick+i] && table[xClick+i][yClick+j] == playerIndex)
                     {
-                        window.location.href = "/game/HASHCODE/PLAYER/" + (xClick + 2) + "/" + (yClick + 2) + "/" + j + "/" + i;
+                        //window.location.href = "/game/HASHCODE/PLAYER/" + (xClick + 2) + "/" + (yClick + 2) + "/" + j + "/" + i;
+                        sendMessage({game:HASHCODE, player:"PLAYER", position:{x:xClick + 2,y:yClick + 2},originPosition:{x:j,y:i}});
                         return;
                     }
                 }
             }
 		}
+
+		//Helper function for inserting HTML as the first child of an element
+        function insert(targetId, message)
+        {
+            id(targetId).insertAdjacentHTML("afterbegin", message);
+        }
+
+        //Helper function for selecting element by id
+        function id(id)
+        {
+            return document.getElementById(id);
+        }
 		</script>
     </head>
-    <body onload="refreshTimeout()">
+    <body>
         <table id="game_board" cellpadding="0" cellspacing="0">
             <!--INSERT_GAME_BOARD-->
         </table>
