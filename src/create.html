@@ -4,19 +4,20 @@
     <meta charset="UTF-8">
     <title>Create</title>
     <script>
-    function validateForm() {
+    function validateForm()
+    {
         var x = document.forms["newGameForm"]["name"].value;
-        if (x == null || x == "" || /[^a-zA-Z0-9_\\-&(),.+ ]/.test(x)) {
+        if (x == null || x == "" || /[^a-zA-Z0-9_\-&(),.+ ]/.test(x)) {
             alert("Name must be filled out");
             return false;
         }
         x = document.forms["newGameForm"]["size"].value;
         if (x == null || x == "" || /[^0-9]/.test(x) || x < 5) {
-            alert("Size must be a number greater than 5");
+            alert("Size must be a number greater than 4");
             return false;
         }
     }
-</script>
+    </script>
 </head>
 <body>
     <h1>Create a new game</h1>
