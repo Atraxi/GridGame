@@ -17,7 +17,7 @@ public class Game implements Comparable<Game>
 		board = new int[size + 4][size + 4];
 		board[2][2] = 1;
 		board[board.length - 1 - 2][board[0].length - 1 - 2] = 2;
-        gameBoard = new String(Files.readAllBytes(Paths.get("gameBoard.html"))).replace("GRIDSIZE", String.valueOf(GRIDSIZE));
+        gameBoard = new String(Files.readAllBytes(Paths.get("templates/gameBoard.html"))).replace("GRIDSIZE", String.valueOf(GRIDSIZE));
 	}
 	
 	public String draw(String player)

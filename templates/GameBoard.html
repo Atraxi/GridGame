@@ -2,7 +2,10 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Play The Game</title>
+    <title>Play The Game!</title>
+    <link rel="icon" type="image/png" href="/favicon.png" />
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.2.2/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-Zenh87qX5JnK2Jl0vWa8Ck2rdkQ2Bzep5IDxbcnCeuOxjzrPF/et3URy9Bv1WTRi" crossorigin="anonymous">
+
     <style>
         #board_link {
             color:#000;
@@ -165,10 +168,19 @@
 		</script>
     </head>
     <body onload="refreshTimeout()">
+        <h1>Grid Game! Territorial conquest!</h1>
         <table id="game_board" cellpadding="0" cellspacing="0">
             <!--INSERT_GAME_BOARD-->
         </table>
         <!--INSERT_TURN_INFO-->
-        <p id=info_box></p>
+        <div id=info_box>
+            <h3>Valid moves:</h3>
+            <ul>
+                <li>Claim a neighbouring tile adjacent to any you already own</li>
+                <li>Kill an oppnents tile adjacent to any you own</li>
+                <li>Jump a tile you own over an empty, dead, or opponent tile, leaving a dead tile where you jumped from</li>
+            </ul>
+            <h3>Occupy as much of the board with your own colour as you can!</h3>
+        </div>
     </body>
 </html>
