@@ -5,8 +5,8 @@ Depends on https://sparkjava.com version: `spark-core-2.3.jar` downloaded to the
 
 This is very barebones and has been built & run entirely on command line, e.g.
 
-`javac src/Game.java src/Server.java --class-path spark-core-2.3.jar -d out`
+`javac -sourcepath src src/Server.java --class-path lib/* -d out`
 
 And run:
 
-`java -classpath "spark-core-2.3.jar;out" Server`
+`java -classpath "lib/*;out" Server`
