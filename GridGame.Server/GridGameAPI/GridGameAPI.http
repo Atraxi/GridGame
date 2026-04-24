@@ -1,0 +1,6 @@
+@GridGameAPI_HostAddress = http://localhost:5095
+
+GET {{GridGameAPI_HostAddress}}/gridgame/
+Accept: application/json
+
+###
