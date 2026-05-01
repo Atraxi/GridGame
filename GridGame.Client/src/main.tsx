@@ -10,13 +10,21 @@ let router = createBrowserRouter([
     index: true,
     Component: App,
     loader: () =>
-      fetch(`/Games/GetSummaries?page=1`),
+      fetch(`/Games/GetSummaries?page=1`,{
+        headers: {
+          "Content-Type": "application/json",
+        }
+      }),
   },
   {
     path: "/gridgame/:gameId",
     Component: GridGame,
     loader: (args) =>
-      fetch(`/Games/GetGame?gameId=${args.params.gameId}`),
+      fetch(`/Games/GetGame?gameId=${args.params.gameId}`,{
+        headers: {
+          "Content-Type": "application/json",
+        }
+      }),
   },
 ]);
 

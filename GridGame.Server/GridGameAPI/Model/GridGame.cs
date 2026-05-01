@@ -9,5 +9,9 @@
         public required string Name { get; set; }
 
         public int TurnNumber { get; set; }
+
+        public required IEnumerable<Player> Players { get; set; }
+
+        //public required int[,] GameBoard {  get; set; }
     }
 }

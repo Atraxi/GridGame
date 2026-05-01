@@ -3,7 +3,7 @@ import { Link, useLoaderData } from 'react-router'
 
 type GameSummary = {
 	id: number
-	date: string
+	creationDate: string
 	name: string
 	turnNumber: number
 }
@@ -49,7 +49,7 @@ export default function GameList() {
 				<tbody>
 					{gamesList.map(gameSummary => (
 						<tr key={gameSummary.id} >
-							<td>{gameSummary.date}</td>
+							<td>{gameSummary.creationDate}</td>
               <td>{gameSummary.name}</td>
               <td>{gameSummary.turnNumber}</td>
 							<td><Link to={`/gridgame/${gameSummary.id}`}>Join Game</Link></td>

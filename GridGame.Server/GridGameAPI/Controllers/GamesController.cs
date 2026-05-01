@@ -15,6 +15,17 @@ namespace GridGameAPI.Controllers
             CreationDate = DateTime.Now,
             Name = "Hardcoded test game 1",
             TurnNumber = 0,
+            Players = [
+                new Player {
+                    Name = "Test player 1",
+                    Id = 1,
+                },
+                new Player {
+                    Name = "Tst player 2",
+                    Id = 2,
+                },
+            ],
+            //GameBoard = new int[3,4],
         }];
 
         [HttpGet]
