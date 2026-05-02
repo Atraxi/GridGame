@@ -12,6 +12,6 @@
 
         public required IEnumerable<Player> Players { get; set; }
 
-        //public required int[,] GameBoard {  get; set; }
+        public required int[,] GameBoard {  get; set; }
     }
 }

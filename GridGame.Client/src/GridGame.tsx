@@ -2,14 +2,9 @@ import { useEffect, useState } from "react";
 import Board from "./components/game_board/Board";
 import * as signalR from '@microsoft/signalr';
 import { useLoaderData } from "react-router";
+import type { GridGame } from "./model/GridGame";
 
-type GridGame = {
-	id: number
-	date: string
-	name: string
-	turnNumber: number
-}
-export default function GridGame() {
+export default function GridGamePage() {
 	const [connection, setConnection] = useState<signalR.HubConnection | null>(null);
     const [gameState, setGameState] = useState(useLoaderData<GridGame>())
 
@@ -47,7 +42,7 @@ export default function GridGame() {
 		<>
 			<h1>GridGame</h1>
             <p>Game name: {gameState.name}</p>
-			<Board />
+			<Board gameState={gameState} />
 		</>
 	)
 }

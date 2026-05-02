@@ -1,10 +1,15 @@
 using GridGameAPI.SignalRHubs;
+using GridGameAPI.UtilityInfrastructure;
 using Scalar.AspNetCore;
 
 var builder = WebApplication.CreateBuilder(args);
 const string CorsLocalDevPolicyName = "ReactLocalDev";
 
-builder.Services.AddControllers();
+builder.Services.AddControllers()
+    .AddJsonOptions(options =>
+    {
+        options.JsonSerializerOptions.Converters.Add(new TwoDimensionalIntArrayJsonConverter());
+    });
 builder.Services.AddSignalR();
 // Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
 builder.Services.AddOpenApi();
@@ -29,6 +34,7 @@ if (app.Environment.IsDevelopment())
     app.MapScalarApiReference();
     app.UseCors(CorsLocalDevPolicyName);
 }
+
 app.UseHttpsRedirection();
 app.UseAuthorization();
 app.MapControllers();

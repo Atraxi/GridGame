@@ -1,12 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link, useLoaderData } from 'react-router'
-
-type GameSummary = {
-	id: number
-	creationDate: string
-	name: string
-	turnNumber: number
-}
+import type { GameSummary } from '../model/GridGameSummary'
 
 export default function GameList() {
 	const [page, setPage] = useState(1)

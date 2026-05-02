@@ -3,7 +3,7 @@ import { createRoot } from 'react-dom/client'
 import './index.css'
 import App from './App.tsx'
 import { createBrowserRouter, RouterProvider } from 'react-router';
-import GridGame from './GridGame.tsx';
+import GridGamePage from './GridGame.tsx';
 
 let router = createBrowserRouter([
   {
@@ -18,7 +18,7 @@ let router = createBrowserRouter([
   },
   {
     path: "/gridgame/:gameId",
-    Component: GridGame,
+    Component: GridGamePage,
     loader: (args) =>
       fetch(`/Games/GetGame?gameId=${args.params.gameId}`,{
         headers: {

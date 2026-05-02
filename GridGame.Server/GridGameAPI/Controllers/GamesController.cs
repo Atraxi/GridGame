@@ -1,5 +1,6 @@
 using GridGameAPI.Model;
 using Microsoft.AspNetCore.Mvc;
+using System.Text.Json;
 
 namespace GridGameAPI.Controllers
 {
@@ -25,7 +26,7 @@ namespace GridGameAPI.Controllers
                     Id = 2,
                 },
             ],
-            //GameBoard = new int[3,4],
+            GameBoard = new int[3,4],
         }];
 
         [HttpGet]
