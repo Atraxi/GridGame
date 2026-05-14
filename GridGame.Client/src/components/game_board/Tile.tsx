@@ -1,7 +1,7 @@
-export default function Tile() {
+export default function Tile({tileValue, onTileClicked}: {tileValue: number, onTileClicked: () => Promise<any> | undefined}) {
 	return (
-		<>
-			Tile (TODO)
-		</>
+		<td onClick={onTileClicked}>
+			Tile (TODO) {tileValue}
+		</td>
 	)
 }

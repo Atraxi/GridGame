@@ -1,10 +1,14 @@
-using GridGameAPI.SignalRHubs;
+using GridGameAPI.ActiveGames;
+using GridGameAPI.ActiveGames.SignalRHubs;
+using GridGameAPI.Database;
 using GridGameAPI.UtilityInfrastructure;
 using Scalar.AspNetCore;
 
 var builder = WebApplication.CreateBuilder(args);
 const string CorsLocalDevPolicyName = "ReactLocalDev";
 
+builder.Services.AddSingleton<GameSessionManager>();
+builder.Services.AddDbContext<GameContext>();
 builder.Services.AddControllers()
     .AddJsonOptions(options =>
     {
@@ -30,6 +34,13 @@ var app = builder.Build();
 
 if (app.Environment.IsDevelopment())
 {
+    using (var serviceScope = app.Services.CreateScope())
+    {
+        //ServiceLocator pattern isn't ideal, but for an in-memory database this seems to be the best option currently to ensure it's initialialised and seeded
+        var dbContext = serviceScope.ServiceProvider.GetRequiredService<GameContext>();
+        await dbContext.Database.EnsureCreatedAsync();
+    }
+
     app.MapOpenApi();
     app.MapScalarApiReference();
     app.UseCors(CorsLocalDevPolicyName);

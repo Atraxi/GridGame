@@ -1,59 +1,44 @@
+using GridGameAPI.ActiveGames;
+using GridGameAPI.Database;
 using GridGameAPI.Model;
 using Microsoft.AspNetCore.Mvc;
-using System.Text.Json;
+using Microsoft.EntityFrameworkCore;
 
 namespace GridGameAPI.Controllers
 {
     [ApiController]
     [Route("[controller]/[action]")]
-    public class GamesController : ControllerBase
+    public class GamesController(GameSessionManager _sessionManager, GameContext _context) : ControllerBase
     {
         private const int PAGE_SIZE = 20;
-
-        //TODO set up Entity Framework, Database, etc
-        private readonly List<GridGame> games = [new GridGame {
-            Id = 1,
-            CreationDate = DateTime.Now,
-            Name = "Hardcoded test game 1",
-            TurnNumber = 0,
-            Players = [
-                new Player {
-                    Name = "Test player 1",
-                    Id = 1,
-                },
-                new Player {
-                    Name = "Tst player 2",
-                    Id = 2,
-                },
-            ],
-            GameBoard = new int[3,4],
-        }];
 
         [HttpGet]
         public IEnumerable<GameSummary> GetSummaries(int page)
         {
-            return games
+            return _context.GridGames
                 .Skip((page - 1) * PAGE_SIZE)
                 .Select(game => new GameSummary
                 {
                     Id = game.Id,
                     Name = game.Name,
                     CreationDate = game.CreationDate,
-                    TurnNumber = game.TurnNumber,
+                    //TODO it would be nice to include dynamic stuff like turnNumber, but because of GameSessionManager it gets messy and hard to embed in an IQueryable. A nice to have for later
                 })
                 .Take(PAGE_SIZE);
         }
 
         [HttpGet]
-        public GridGame GetGame(int gameId)
+        public async Task<GridGame> GetGame(int gameId)
         {
-            return games.Single(game => game.Id == gameId);
+            return _sessionManager.GetByGameId(gameId)?.GridGame ?? await _context.GridGames.SingleAsync(game => game.Id == gameId);
         }
 
-        public int Post(GridGame gameSummary)
+        [HttpPost]
+        public async Task<int> Post(GridGame newGame)
         {
-            games.Add(gameSummary);
-            return games.Count - 1;
+            _context.GridGames.Add(newGame);
+            await _context.SaveChangesAsync();
+            return newGame.Id;
         }
     }
 }

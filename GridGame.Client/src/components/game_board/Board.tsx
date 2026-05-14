@@ -1,16 +1,19 @@
 import type { GridGame } from "../../model/GridGame";
 import Tile from "./Tile";
 
-export default function Board({ gameState }: { gameState: GridGame }) {
+export default function Board({ gameState, onTileClicked }: { gameState: GridGame, onTileClicked: (x: number, y: number) => () => Promise<any> | undefined }) {
 	return (
 		<>
 			Board (TODO)
+			<table>
 			{gameState.gameBoard.map((row, rowIndex) => 
-				row.map((tile, tileIndex) => {
-					{console.log(`${rowIndex}.${tileIndex}`)}
-					return <Tile key={`${rowIndex}.${tileIndex}`} />
-				})
+				<tr>
+					{row.map((tile, tileIndex) => {
+						return <Tile key={`${rowIndex}.${tileIndex}`} tileValue={gameState.gameBoard[rowIndex][tileIndex]} onTileClicked={onTileClicked(rowIndex, tileIndex)} />
+					})}
+				</tr>
 			)}
+			</table>
 		</>
 	)
 }
