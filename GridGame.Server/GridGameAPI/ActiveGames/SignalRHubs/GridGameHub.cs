@@ -28,7 +28,9 @@ namespace GridGameAPI.ActiveGames.SignalRHubs
             if (session.Connections.Count == 0)
             {
                 _sessionManager.Remove(session.GridGame.Id);
+                
                 _gameContext.Attach(session.GridGame);
+                _gameContext.Entry(session.GridGame).State = EntityState.Modified;
                 await _gameContext.SaveChangesAsync();
             }
         }
