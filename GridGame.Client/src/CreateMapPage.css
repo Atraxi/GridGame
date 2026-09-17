@@ -1,0 +1,105 @@
+.map-editor {
+	max-width: 720px;
+	margin: 24px auto;
+	padding: 0 20px;
+	text-align: left;
+}
+
+.map-editor__settings {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 16px;
+	margin: 16px 0;
+}
+
+.map-editor__field {
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+	font-size: 14px;
+	color: var(--text);
+}
+
+.map-editor__field input {
+	font: inherit;
+	padding: 8px 10px;
+	border: 1px solid var(--border);
+	border-radius: 6px;
+	background: var(--bg);
+	color: var(--text-h);
+	width: 100px;
+}
+
+.map-editor__field--name {
+	max-width: 320px;
+	margin-bottom: 8px;
+}
+
+.map-editor__field--name input {
+	width: 100%;
+}
+
+.map-editor__error {
+	margin-top: 14px;
+	color: #d8532e;
+}
+
+.map-editor__workspace {
+	display: flex;
+	align-items: flex-start;
+	gap: 20px;
+	/* Buttons are held down and dragged across for painting - text selection just gets in the way */
+	user-select: none;
+
+	/* Board.css scopes these to .board, which the palette swatches sit outside of (as .board's sibling, not
+	   descendant) - redeclared here so the swatch tiles pick up the same player colours */
+	--player-1: #e05252;
+	--player-2: #3d7dd8;
+	--player-3: #3fa45b;
+	--player-4: #dc9a2e;
+	--player-5: #9b5de5;
+	--player-6: #16a6a6;
+	--dead: #c3bfca;
+}
+
+@media (prefers-color-scheme: dark) {
+	.map-editor__workspace {
+		--dead: #33343f;
+	}
+}
+
+.map-editor__palette {
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+	flex-shrink: 0;
+}
+
+.map-editor__swatch {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	padding: 6px 10px 6px 6px;
+	border: 1px solid transparent;
+	border-radius: 8px;
+	background: none;
+	color: var(--text);
+	font: inherit;
+	cursor: pointer;
+	text-align: left;
+}
+
+.map-editor__swatch:hover {
+	background: var(--border);
+}
+
+.map-editor__swatch--selected {
+	border-color: var(--accent);
+}
+
+.map-editor__swatch .tile {
+	width: 24px;
+	height: 24px;
+	cursor: inherit;
+	pointer-events: none;
+}

@@ -9,21 +9,40 @@ namespace GridGameAPI.UtilityInfrastructure
         {
             using var jsonDoc = JsonDocument.ParseValue(ref reader);
 
-            var rowLength = jsonDoc.RootElement.GetArrayLength();
-            var columnLength = jsonDoc.RootElement.EnumerateArray().First().GetArrayLength();
-
-            int[,] grid = new int[rowLength, columnLength];
-
-            int row = 0;
-            foreach (var array in jsonDoc.RootElement.EnumerateArray())
+            if (jsonDoc.RootElement.ValueKind != JsonValueKind.Array)
             {
-                int column = 0;
-                foreach (var number in array.EnumerateArray())
+                throw new JsonException("Expected a JSON array of arrays.");
+            }
+
+            var rows = jsonDoc.RootElement.EnumerateArray().ToList();
+            if (rows.Count == 0)
+            {
+                return new int[0, 0];
+            }
+            if (rows.Any(row => row.ValueKind != JsonValueKind.Array))
+            {
+                throw new JsonException("Expected a JSON array of arrays.");
+            }
+
+            var columnLength = rows[0].GetArrayLength();
+            if (rows.Any(row => row.GetArrayLength() != columnLength))
+            {
+                throw new JsonException("All rows must be the same length.");
+            }
+
+            var grid = new int[rows.Count, columnLength];
+            for (var row = 0; row < rows.Count; row++)
+            {
+                var column = 0;
+                foreach (var number in rows[row].EnumerateArray())
                 {
-                    grid[row, column] = number.GetInt32();
+                    if (number.ValueKind != JsonValueKind.Number || !number.TryGetInt32(out var value))
+                    {
+                        throw new JsonException("Expected an integer.");
+                    }
+                    grid[row, column] = value;
                     column++;
                 }
-                row++;
             }
 
             return grid;

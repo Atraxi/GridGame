@@ -1,0 +1,34 @@
+.move-legend {
+	display: flex;
+	gap: 16px;
+	justify-content: center;
+	font-size: 14px;
+}
+
+.move-legend__swatch {
+	display: inline-block;
+	width: 12px;
+	height: 12px;
+	border-radius: 3px;
+	margin-right: 6px;
+	vertical-align: middle;
+}
+
+.move-legend__swatch--spawn {
+	background: var(--spawn-hint);
+}
+
+.move-legend__swatch--jump {
+	background: var(--jump-hint);
+}
+
+.move-legend__swatch--jump-origin {
+	background: var(--jump-origin-hint);
+}
+
+.score-prediction {
+	text-align: center;
+	font-size: 14px;
+	color: var(--text-muted, var(--text));
+	font-style: italic;
+}

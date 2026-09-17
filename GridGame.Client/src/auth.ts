@@ -1,0 +1,132 @@
+import { useSyncExternalStore } from 'react'
+import { GUEST_USER_NAME_PREFIX } from './model/Player'
+
+const TOKEN_KEY = 'gridgame.token'
+const REFRESH_TOKEN_KEY = 'gridgame.refreshToken'
+const USER_NAME_KEY = 'gridgame.userName'
+
+export const getUserName = () => localStorage.getItem(USER_NAME_KEY)
+
+export const isGuest = () => getUserName()?.startsWith(GUEST_USER_NAME_PREFIX) ?? true
+
+//localStorage writes aren't reactive on their own, so a component that stays mounted across a Promote/Login/logout
+//(e.g. the persistent header layout) would otherwise never re-render to reflect it
+const authChangeListeners = new Set<() => void>()
+function notifyAuthChange() {
+	authChangeListeners.forEach(listener => listener())
+}
+function subscribeToAuthChange(listener: () => void) {
+	authChangeListeners.add(listener)
+	return () => authChangeListeners.delete(listener)
+}
+
+/** Reactive equivalent of getUserName(), for components that stay mounted across an auth change */
+export const useUserName = () => useSyncExternalStore(subscribeToAuthChange, getUserName)
+
+/** Reactive equivalent of isGuest(), for components that stay mounted across an auth change */
+export const useIsGuest = () => useUserName()?.startsWith(GUEST_USER_NAME_PREFIX) ?? true
+
+async function storeAuth(response: Response) {
+	if (!response.ok) {
+		throw new Error(await response.text())
+	}
+	const { token, refreshToken, userName } = await response.json()
+	localStorage.setItem(TOKEN_KEY, token)
+	localStorage.setItem(REFRESH_TOKEN_KEY, refreshToken)
+	localStorage.setItem(USER_NAME_KEY, userName)
+	notifyAuthChange()
+	return userName as string
+}
+
+function clearAuth() {
+	localStorage.removeItem(TOKEN_KEY)
+	localStorage.removeItem(REFRESH_TOKEN_KEY)
+	localStorage.removeItem(USER_NAME_KEY)
+	notifyAuthChange()
+}
+
+//A JWT's expiry lives in its unencrypted middle segment - decoding it client-side lets callers act on it
+//(refresh proactively, or time a SignalR reconnect) without waiting for the server to reject a request
+export function getTokenExpiryMs(token: string): number {
+	try {
+		const { exp } = JSON.parse(atob(token.split('.')[1]))
+		return typeof exp === 'number' ? exp * 1000 : Date.now()
+	} catch {
+		return Date.now()
+	}
+}
+
+function isExpired(token: string): boolean {
+	//Renew a little early so a request already in flight when the clock ticks over doesn't get a 401 anyway
+	return Date.now() >= getTokenExpiryMs(token) - 30_000
+}
+
+/** Trades the stored refresh token for a new access+refresh pair. Works the same for guest and named accounts -
+ * refresh tokens don't care which, only Promote/Login (which need actual credentials) do */
+async function tryRefresh(): Promise<boolean> {
+	const refreshToken = localStorage.getItem(REFRESH_TOKEN_KEY)
+	if (!refreshToken) {
+		return false
+	}
+	try {
+		await storeAuth(await fetch('/Users/Refresh', {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({ refreshToken }),
+		}))
+		return true
+	} catch {
+		return false
+	}
+}
+
+async function acquireToken(staleToken: string | null): Promise<string> {
+	if (!(await tryRefresh())) {
+		if (staleToken && !isGuest()) {
+			//The refresh token is also gone/expired, and a named account can't be re-authenticated without credentials
+			clearAuth()
+			throw new Error('Your session has expired. Please log in again.')
+		}
+		//No token yet, or a guest with no usable refresh token left - either way a fresh anonymous guest is the only option
+		await storeAuth(await fetch('/Users/GuestAuth', { method: 'POST' }))
+	}
+	return localStorage.getItem(TOKEN_KEY)!
+}
+
+//A refresh token is single-use: if a REST call and the SignalR connection's proactive rotation both notice the
+//access token has expired at the same moment, letting both call acquireToken() independently means the loser's
+//refresh request arrives after the token's already been rotated, so it wrongly falls back to minting a fresh
+//guest - discarding the session the winner just renewed. Sharing one in-flight attempt avoids that race.
+let pendingAcquire: Promise<string> | null = null
+
+/** Every visitor is authenticated, as an anonymous guest until they choose to promote that same account to a named one */
+export async function ensureToken(): Promise<string> {
+	const token = localStorage.getItem(TOKEN_KEY)
+	if (token && !isExpired(token)) {
+		return token
+	}
+
+	if (!pendingAcquire) {
+		pendingAcquire = acquireToken(token).finally(() => { pendingAcquire = null })
+	}
+	return pendingAcquire
+}
+
+export const authorizedFetch = async (url: string, init?: RequestInit) => {
+	const request = async () => fetch(url, {
+		...init,
+		headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${await ensureToken()}`, ...init?.headers },
+	})
+
+	const response = await request()
+	if (response.status !== 401) {
+		return response
+	}
+	//ensureToken() thought the token was still good but the server disagreed (clock skew, server restart, etc.) -
+	//drop it and let ensureToken() sort out a replacement for a single retry
+	localStorage.removeItem(TOKEN_KEY)
+	return request()
+}
+
+export const postToUsers = async (action: 'Promote' | 'Login', body: unknown) =>
+	storeAuth(await authorizedFetch(`/Users/${action}`, { method: 'POST', body: JSON.stringify(body) }))

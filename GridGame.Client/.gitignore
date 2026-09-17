@@ -24,3 +24,5 @@ dist-ssr
 *.sw?
 
 public/*
+# ...but the favicon is a source asset the build needs, not something generated
+!public/favicon.png

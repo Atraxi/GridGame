@@ -2,29 +2,48 @@ import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import './index.css'
 import App from './App.tsx'
+import Layout from './Layout.tsx'
+import LoginPage from './LoginPage.tsx'
+import AccountPage from './AccountPage.tsx'
+import CreateMapPage from './CreateMapPage.tsx'
 import { createBrowserRouter, RouterProvider } from 'react-router';
 import GridGamePage from './GridGame.tsx';
+import { authorizedFetch } from './auth.ts';
 
 let router = createBrowserRouter([
   {
-    index: true,
-    Component: App,
-    loader: () =>
-      fetch(`/Games/GetSummaries?page=1`,{
-        headers: {
-          "Content-Type": "application/json",
-        }
-      }),
-  },
-  {
-    path: "/gridgame/:gameId",
-    Component: GridGamePage,
-    loader: (args) =>
-      fetch(`/Games/GetGame?gameId=${args.params.gameId}`,{
-        headers: {
-          "Content-Type": "application/json",
-        }
-      }),
+    Component: Layout,
+    children: [
+      {
+        index: true,
+        Component: App,
+        loader: () => authorizedFetch(`/Games/GetSummaries?page=1`),
+      },
+      {
+        path: "gridgame/:gameId",
+        Component: GridGamePage,
+        loader: (args) => authorizedFetch(`/Games/GetGame?gameId=${args.params.gameId}`),
+      },
+      {
+        path: "login",
+        Component: LoginPage,
+      },
+      {
+        path: "account",
+        Component: AccountPage,
+        loader: async () => {
+          const [profile, maps] = await Promise.all([
+            authorizedFetch('/Users/Me').then(response => response.json()),
+            authorizedFetch('/Maps/GetMine').then(response => response.json()),
+          ])
+          return { profile, maps }
+        },
+      },
+      {
+        path: "maps/create",
+        Component: CreateMapPage,
+      },
+    ],
   },
 ]);
 

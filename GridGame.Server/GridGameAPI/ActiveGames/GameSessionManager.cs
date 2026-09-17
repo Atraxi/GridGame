@@ -12,7 +12,8 @@ namespace GridGameAPI.ActiveGames
         public GameSession? GetByGameId(int gameId) =>
             _sessions.GetValueOrDefault(gameId);
 
-        public GameSession GetByConnectionId(string connectionId) => 
+        /// <returns>The session containing this connection, or null if it disconnected/was called before ever registering via OnConnectedToGame</returns>
+        public GameSession? GetByConnectionId(string connectionId) =>
             //TODO this feels a bit messy, find a cleaner data structure?
             _sessions.FirstOrDefault(sessionsKeyPair =>
                 sessionsKeyPair.Value.Connections.Any(connectionKeyPair => connectionKeyPair.Key == connectionId)).Value;

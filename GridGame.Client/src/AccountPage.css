@@ -1,0 +1,15 @@
+.account-page {
+	max-width: 480px;
+	margin: 32px auto;
+	padding: 0 20px;
+	text-align: left;
+}
+
+.account-page__stats,
+.account-page__maps {
+	list-style: none;
+	padding: 0;
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+}

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link, useLoaderData } from 'react-router'
 import type { GameSummary } from '../model/GridGameSummary'
+import { authorizedFetch } from '../auth'
 
 export default function GameList() {
 	const [page, setPage] = useState(1)
@@ -9,7 +10,7 @@ export default function GameList() {
   const [error, setError] = useState<string | null>(null)
 
 	useEffect(() => {
-    fetch(`/Games/GetSummaries?page=${page}`)
+    authorizedFetch(`/Games/GetSummaries?page=${page}`)
       .then(async response => {
         if (!response.ok) {
           throw new Error(`Request failed: ${response.status}`)

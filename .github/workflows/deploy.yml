@@ -1,0 +1,129 @@
+name: Deploy to Azure
+
+# Infrastructure and application are deployed together: infra/main.bicep is applied first (it is
+# idempotent, so re-running it just reconciles the resource group), then the built app is pushed to
+# the web app whose name the template reports back.
+#
+# Authentication uses GitHub OIDC - there is no publish profile or client secret stored anywhere.
+# scripts/setup-azure.ps1 creates the federated credential and populates the secrets below.
+
+on:
+  push:
+    branches: [master]
+    paths-ignore:
+      - '**/*.md'
+      - '.gitignore'
+  workflow_dispatch:
+
+# Only one deployment at a time; a queued run supersedes an older queued one.
+concurrency:
+  group: deploy-azure
+  cancel-in-progress: false
+
+permissions:
+  # Required for azure/login to exchange the GitHub OIDC token for an Azure access token.
+  id-token: write
+  contents: read
+
+env:
+  DOTNET_VERSION: '10.0.x'
+  NODE_VERSION: '22.x'
+  API_PROJECT: GridGame.Server/GridGameAPI/GridGameAPI.csproj
+
+jobs:
+  infrastructure:
+    name: Provision infrastructure
+    runs-on: ubuntu-latest
+    outputs:
+      webAppName: ${{ steps.deploy.outputs.webAppName }}
+      webAppUrl: ${{ steps.deploy.outputs.webAppUrl }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Sign in to Azure
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Deploy infra/main.bicep
+        id: deploy
+        env:
+          RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP }}
+          SQL_ADMIN_PASSWORD: ${{ secrets.SQL_ADMIN_PASSWORD }}
+          JWT_SIGNING_KEY: ${{ secrets.JWT_SIGNING_KEY }}
+        run: |
+          set -euo pipefail
+          # Secrets are passed through the environment rather than interpolated into the command
+          # line, so they never reach the process table or the job log.
+          outputs=$(az deployment group create \
+            --resource-group "$RESOURCE_GROUP" \
+            --name "gridgame-$GITHUB_RUN_NUMBER" \
+            --template-file infra/main.bicep \
+            --parameters sqlAdminPassword="$SQL_ADMIN_PASSWORD" jwtSigningKey="$JWT_SIGNING_KEY" \
+            --query properties.outputs \
+            --output json)
+          echo "webAppName=$(echo "$outputs" | jq -r .webAppName.value)" >> "$GITHUB_OUTPUT"
+          echo "webAppUrl=$(echo "$outputs" | jq -r .webAppUrl.value)" >> "$GITHUB_OUTPUT"
+
+  build:
+    name: Build client and API
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: GridGame.Client/package-lock.json
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      # vite.config.ts writes the bundle straight into the API's wwwroot, so the publish step below
+      # picks it up and the SPA ends up served from the same origin as the API and the SignalR hub.
+      - name: Build client
+        working-directory: GridGame.Client
+        run: |
+          npm ci
+          npm run build
+
+      - name: Publish API
+        run: dotnet publish "$API_PROJECT" --configuration Release --output publish
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: app
+          path: publish
+          retention-days: 3
+
+  deploy:
+    name: Deploy application
+    runs-on: ubuntu-latest
+    needs: [infrastructure, build]
+    environment:
+      name: production
+      url: ${{ needs.infrastructure.outputs.webAppUrl }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: app
+          path: publish
+
+      - name: Sign in to Azure
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - uses: azure/webapps-deploy@v3
+        with:
+          app-name: ${{ needs.infrastructure.outputs.webAppName }}
+          package: publish
+
+      - name: Summarise
+        run: echo "Deployed to ${{ needs.infrastructure.outputs.webAppUrl }}" >> "$GITHUB_STEP_SUMMARY"

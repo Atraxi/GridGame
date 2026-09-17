@@ -9,5 +9,7 @@ namespace GridGameAPI.Model
         public required string Name { get; set; }
 
         public int TurnNumber { get; set; }
+
+        public bool IsGameOver { get; set; }
     }
 }

@@ -5,6 +5,11 @@ export type GridGame = {
 	creationDate: string
 	name: string
 	turnNumber: number,
+	playerCount: number,
+	actionsPerTurn: number,
+	currentPlayerNumber: number,
+	actionsRemainingInTurn: number,
 	players: Player[],
 	gameBoard: number[][],
+	isGameOver: boolean,
 }
