@@ -14,6 +14,7 @@ namespace GridGameAPI.Controllers
         UserManager<Player> _userManager,
         JwtManager _jwtManager,
         RefreshTokenManager _refreshTokenManager,
+        GuestCleanup _guestCleanup,
         IOptions<JwtSettings> _jwtSettings) : ControllerBase
     {
         private DateTime AccessTokenExpiry => DateTime.UtcNow.AddMinutes(_jwtSettings.Value.AccessTokenExpiryMinutes);
@@ -36,6 +37,7 @@ namespace GridGameAPI.Controllers
             {
                 return BadRequest(string.Join(" ", result.Errors.Select(error => error.Description)));
             }
+            _guestCleanup.TriggerIfDue();
             return await TokenFor(guest);
         }
 
@@ -81,6 +83,29 @@ namespace GridGameAPI.Controllers
                 return Unauthorized("Refresh token is invalid, expired, or already used");
             }
             return await TokenFor(player);
+        }
+
+        /// <summary>Signs this device out by revoking its refresh token. Anonymous for the same reason as Refresh: the
+        /// access token may well have expired already, and the refresh token is itself the proof of ownership</summary>
+        [HttpPost]
+        public async Task<ActionResult> Logout(RefreshModel model)
+        {
+            await _refreshTokenManager.RevokeAsync(model.RefreshToken);
+            return NoContent();
+        }
+
+        /// <summary>Signs every device out of this account</summary>
+        [Authorize(Policy = AuthPolicy.NamedAccountOnly)]
+        [HttpPost]
+        public async Task<ActionResult> LogoutEverywhere()
+        {
+            var player = await _userManager.GetUserAsync(User);
+            if (player is null)
+            {
+                return Unauthorized();
+            }
+            await _refreshTokenManager.RevokeAllAsync(player.Id);
+            return NoContent();
         }
 
         [Authorize(Policy = AuthPolicy.AnyUser)]

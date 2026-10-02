@@ -1,12 +1,21 @@
-import { Link, useLoaderData } from "react-router"
+import { useState } from "react"
+import { Link, useLoaderData, useNavigate } from "react-router"
 import type { PlayerProfile } from "./model/PlayerProfile"
 import type { MapSummary } from "./model/MapSummary"
-import { isGuest } from "./auth"
+import { isGuest, logout, logoutEverywhere } from "./auth"
 import "./AccountPage.css"
 
 export default function AccountPage() {
 	const { profile, maps } = useLoaderData<{ profile: PlayerProfile, maps: MapSummary[] }>()
 	const guest = isGuest()
+	const navigate = useNavigate()
+	const [error, setError] = useState<string | null>(null)
+
+	const signOut = (everywhere: boolean) => {
+		(everywhere ? logoutEverywhere() : logout())
+			.then(() => navigate('/'))
+			.catch(err => setError(err.message))
+	}
 
 	return (
 		<section className="account-page">
@@ -27,6 +36,17 @@ export default function AccountPage() {
 				: <ul className="account-page__maps">
 					{maps.map(map => <li key={map.id}>{map.name}</li>)}
 				</ul>}
+
+			{!guest && <>
+				<h2>Sign out</h2>
+				<p className="account-page__actions">
+					<button type="button" onClick={() => signOut(false)}>Log out</button>
+					<button type="button" onClick={() => signOut(true)} title="Signs out every device and browser using this account">
+						Log out everywhere
+					</button>
+				</p>
+				{error && <p>{error}</p>}
+			</>}
 		</section>
 	)
 }

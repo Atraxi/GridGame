@@ -3,7 +3,7 @@ import react from '@vitejs/plugin-react'
 
 //Every route the API owns. Listed once so the dev proxy and any future rewrite rules stay in step -
 //in production these are same-origin, because the build below lands in the API's wwwroot
-const apiRoutes = ['/Games', '/Users', '/Maps', '/GridGame']
+const apiRoutes = ['/Games', '/Users', '/Maps', '/GridGame', '/healthz']
 
 // https://vite.dev/config/
 export default defineConfig({

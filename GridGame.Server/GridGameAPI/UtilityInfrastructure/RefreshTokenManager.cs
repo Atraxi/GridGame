@@ -46,6 +46,23 @@ namespace GridGameAPI.UtilityInfrastructure
             return stored.Player;
         }
 
+        /// <summary>Revokes one refresh token (logging out the device holding it). Unknown or already-revoked tokens
+        /// are ignored - the outcome the caller wants holds either way</summary>
+        public async Task RevokeAsync(string rawToken)
+        {
+            var hash = Hash(rawToken);
+            await _context.RefreshTokens
+                .Where(refreshToken => refreshToken.TokenHash == hash && refreshToken.RevokedAt == null)
+                .ExecuteUpdateAsync(setters => setters.SetProperty(refreshToken => refreshToken.RevokedAt, DateTime.UtcNow));
+        }
+
+        /// <summary>Revokes every outstanding refresh token for a player - logs out every device. Access tokens already
+        /// issued stay valid until they expire (AccessTokenExpiryMinutes), since they're checked by signature alone</summary>
+        public async Task RevokeAllAsync(string playerId) =>
+            await _context.RefreshTokens
+                .Where(refreshToken => refreshToken.PlayerId == playerId && refreshToken.RevokedAt == null)
+                .ExecuteUpdateAsync(setters => setters.SetProperty(refreshToken => refreshToken.RevokedAt, DateTime.UtcNow));
+
         private static string Hash(string rawToken) =>
             Convert.ToBase64String(SHA256.HashData(Encoding.UTF8.GetBytes(rawToken)));
     }

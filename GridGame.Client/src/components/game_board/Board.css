@@ -1,14 +1,17 @@
-.board {
-	--tile-size: 42px;
-	--outline-width: 2px;
-	--blob-round: 13px;
-
+/* Global rather than scoped to .board, so things outside the board (the analysis table's swatches) can match it */
+:root {
 	--player-1: #e05252;
 	--player-2: #3d7dd8;
 	--player-3: #3fa45b;
 	--player-4: #dc9a2e;
 	--player-5: #9b5de5;
 	--player-6: #16a6a6;
+}
+
+.board {
+	--tile-size: 42px;
+	--outline-width: 2px;
+	--blob-round: 13px;
 
 	--board-bg: #f1f0f4;
 	--grid-line: rgba(0, 0, 0, 0.08);
@@ -73,6 +76,25 @@
 		rgba(0, 0, 0, 0.16) 0 2px,
 		transparent 2px 7px
 	);
+}
+
+/* Territory overlay (see BoardAnalysis): unclaimed ground only one player can ever reach, tinted in that player's
+   colour - solid when nobody can interfere with their route to it, striped when they could still be cut off */
+.tile--territory-secure {
+	background-color: color-mix(in srgb, var(--player) 30%, transparent);
+}
+
+.tile--territory-at-risk {
+	background-image: repeating-linear-gradient(
+		135deg,
+		color-mix(in srgb, var(--player) 30%, transparent) 0 4px,
+		transparent 4px 9px
+	);
+}
+
+/* Ground nobody can reach any more - it will never score */
+.tile--unreachable {
+	background-color: color-mix(in srgb, var(--dead) 35%, transparent);
 }
 
 .tile:hover {

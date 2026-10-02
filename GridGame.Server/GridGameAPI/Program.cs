@@ -34,6 +34,8 @@ builder.Services.AddIdentity<Player, IdentityRole>(options =>
 builder.Services.AddSingleton<GameSessionManager>();
 builder.Services.AddScoped<JwtManager>();
 builder.Services.AddScoped<RefreshTokenManager>();
+builder.Services.AddSingleton<GuestCleanup>();
+builder.Services.AddHostedService<SessionMonitor>();
 
 //Read eagerly rather than inside the AddJwtBearer callback below, which isn't invoked until the first request that
 //needs authentication - a missing key should stop the app at startup, where it is obvious, rather than surfacing as a
@@ -84,7 +86,16 @@ builder.Services.AddAuthorizationBuilder()
 builder.Services.AddControllers()
     .AddJsonOptions(options => options.JsonSerializerOptions.Converters.Add(new TwoDimensionalIntArrayJsonConverter()));
 
-builder.Services.AddSignalR();
+var signalRBuilder = builder.Services.AddSignalR();
+//In Azure, client connections are held by Azure SignalR Service rather than by this process: the free App Service
+//plan can't be relied on for inbound WebSockets, and the service keeps connection handling off the plan's daily CPU
+//quota. Keyed off the connection string's presence so local development keeps the plain in-process hub. The hub
+//code is unchanged either way - the SDK carries the negotiating user's claims through, so Context.User and
+//Context.UserIdentifier behave the same
+if (!string.IsNullOrEmpty(builder.Configuration["Azure:SignalR:ConnectionString"]))
+{
+    signalRBuilder.AddAzureSignalR();
+}
 
 builder.Services.AddOpenApi();
 
@@ -129,6 +140,11 @@ if (app.Environment.IsDevelopment())
     hubConfigurator.RequireCors(CorsLocalDevPolicyName);
 }
 
+//Pinged by the client while a game is open. With Azure SignalR, gameplay traffic reaches this app over its own outbound
+//connection to the service, so none of it counts as an incoming request - and without Always On (unavailable on the
+//free plan) App Service unloads an app after ~20 minutes of no incoming requests, mid-game included
+app.MapGet("/healthz", () => Results.Ok());
+
 //React Router owns the client-side routes, so any unmatched GET that isn't an API route or a real file has to be
 //answered with the SPA shell rather than a 404 - otherwise deep links and refreshes break
 app.MapFallbackToFile("index.html");
@@ -156,6 +172,8 @@ using (var serviceScope = app.Services.CreateScope())
             await dbContext.SaveChangesAsync();
         }
     }
+
+    serviceScope.ServiceProvider.GetRequiredService<GuestCleanup>().TriggerIfDue();
 }
 
 if (app.Environment.IsDevelopment())

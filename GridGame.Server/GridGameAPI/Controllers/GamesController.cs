@@ -32,23 +32,47 @@ namespace GridGameAPI.Controllers
 
         [Authorize(Policy = AuthPolicy.AnyUser)]
         [HttpGet]
-        public async Task<GridGame> GetGame(int gameId)
+        public async Task<ActionResult<GridGame>> GetGame(int gameId)
         {
-            return _sessionManager.GetByGameId(gameId)?.GridGame ?? await _context.GridGames.SingleAsync(game => game.Id == gameId);
+            var game = _sessionManager.GetByGameId(gameId)?.GridGame ?? await _context.GridGames.SingleOrDefaultAsync(game => game.Id == gameId);
+            return game is null ? NotFound("No game with that id exists.") : game;
         }
 
         //Final scores (and other meta score stats) are a named-account-only feature - GridGame.FinalScores is
         //JsonIgnore'd everywhere else, so this is the only way to actually read it
         [Authorize(Policy = AuthPolicy.NamedAccountOnly)]
         [HttpGet]
-        public async Task<ActionResult<int[]>> GetFinalScores(int gameId)
+        public async Task<ActionResult> GetFinalScores(int gameId)
         {
-            var game = _sessionManager.GetByGameId(gameId)?.GridGame ?? await _context.GridGames.SingleAsync(g => g.Id == gameId);
+            var game = _sessionManager.GetByGameId(gameId)?.GridGame ?? await _context.GridGames.SingleOrDefaultAsync(g => g.Id == gameId);
+            if (game is null)
+            {
+                return NotFound("No game with that id exists.");
+            }
             if (!game.IsGameOver || game.FinalScores is null)
             {
                 return NotFound("This game hasn't ended yet.");
             }
-            return game.FinalScores;
+
+            //The breakdown behind the scores is recomputed from the final board rather than stored - it's a pure
+            //function of it. After a natural finish it just confirms the scores; after a resignation it's what shows
+            //how much was still undecided (contested/at-risk cells) when the game was called
+            var analysis = BoardAnalysis.Compute(game.GameBoard, game.PlayerCount);
+            var best = Enumerable.Range(1, game.PlayerCount)
+                .Where(player => player != game.ResignedPlayerNumber)
+                .Select(player => game.FinalScores[player - 1])
+                .DefaultIfEmpty(0)
+                .Max();
+            return Ok(new
+            {
+                scores = game.FinalScores,
+                resignedPlayerNumber = game.ResignedPlayerNumber,
+                //Highest score among those who didn't resign - a resigner concedes regardless of their score. Ties
+                //list every tied player
+                winners = Enumerable.Range(1, game.PlayerCount)
+                    .Where(player => player != game.ResignedPlayerNumber && game.FinalScores[player - 1] == best),
+                analysis = BoardAnalysis.ToWire(analysis),
+            });
         }
 
         //Hosting a game is a privilege of permanent named accounts, same as designing maps. Games are always hosted

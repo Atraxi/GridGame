@@ -12,4 +12,5 @@ export type GridGame = {
 	players: Player[],
 	gameBoard: number[][],
 	isGameOver: boolean,
+	resignedPlayerNumber?: number | null,
 }

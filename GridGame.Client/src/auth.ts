@@ -9,6 +9,16 @@ export const getUserName = () => localStorage.getItem(USER_NAME_KEY)
 
 export const isGuest = () => getUserName()?.startsWith(GUEST_USER_NAME_PREFIX) ?? true
 
+/** The stored credentials can no longer be renewed (refresh token expired, revoked, or already used) and the account
+ * is a named one, so it can't just be replaced with a fresh guest - the user has to log in again, or choose to
+ * carry on as a new guest. Route loaders and the game page turn this into a redirect to the login page */
+export class SessionExpiredError extends Error {
+	constructor() {
+		super('Your session has expired. Please log in again.')
+		this.name = 'SessionExpiredError'
+	}
+}
+
 //localStorage writes aren't reactive on their own, so a component that stays mounted across a Promote/Login/logout
 //(e.g. the persistent header layout) would otherwise never re-render to reflect it
 const authChangeListeners = new Set<() => void>()
@@ -19,6 +29,13 @@ function subscribeToAuthChange(listener: () => void) {
 	authChangeListeners.add(listener)
 	return () => authChangeListeners.delete(listener)
 }
+
+//Another tab logging in/out writes the same localStorage keys - the storage event is how this tab hears about it
+window.addEventListener('storage', event => {
+	if (event.key === null || event.key === USER_NAME_KEY) {
+		notifyAuthChange()
+	}
+})
 
 /** Reactive equivalent of getUserName(), for components that stay mounted across an auth change */
 export const useUserName = () => useSyncExternalStore(subscribeToAuthChange, getUserName)
@@ -81,11 +98,18 @@ async function tryRefresh(): Promise<boolean> {
 }
 
 async function acquireToken(staleToken: string | null): Promise<string> {
+	//Another tab may have renewed the shared credentials while this one waited for the lock - if so, that renewal
+	//already used up the refresh token this tab would have sent, and its result is what to use
+	const current = localStorage.getItem(TOKEN_KEY)
+	if (current && current !== staleToken && !isExpired(current)) {
+		return current
+	}
+
 	if (!(await tryRefresh())) {
-		if (staleToken && !isGuest()) {
-			//The refresh token is also gone/expired, and a named account can't be re-authenticated without credentials
+		if (!isGuest()) {
+			//The refresh token is gone/expired/revoked, and a named account can't be re-authenticated without credentials
 			clearAuth()
-			throw new Error('Your session has expired. Please log in again.')
+			throw new SessionExpiredError()
 		}
 		//No token yet, or a guest with no usable refresh token left - either way a fresh anonymous guest is the only option
 		await storeAuth(await fetch('/Users/GuestAuth', { method: 'POST' }))
@@ -93,11 +117,17 @@ async function acquireToken(staleToken: string | null): Promise<string> {
 	return localStorage.getItem(TOKEN_KEY)!
 }
 
-//A refresh token is single-use: if a REST call and the SignalR connection's proactive rotation both notice the
-//access token has expired at the same moment, letting both call acquireToken() independently means the loser's
-//refresh request arrives after the token's already been rotated, so it wrongly falls back to minting a fresh
-//guest - discarding the session the winner just renewed. Sharing one in-flight attempt avoids that race.
+//A refresh token is single-use, and every tab shares the one in localStorage: if two tabs (or a REST call and the
+//SignalR connection's proactive rotation) each notice the access token has expired and refresh independently, the
+//loser's request arrives after the token has already been rotated and fails - which for a named account means being
+//logged out, and for a guest means being swapped for a brand new one. A Web Lock serialises renewal across tabs
+//(acquireToken then picks up the winner's result), and pendingAcquire collapses concurrent callers within this tab
 let pendingAcquire: Promise<string> | null = null
+
+const withRenewalLock = <T,>(work: () => Promise<T>): Promise<T> =>
+	'locks' in navigator
+		? navigator.locks.request('gridgame.token-renewal', work)
+		: work()
 
 /** Every visitor is authenticated, as an anonymous guest until they choose to promote that same account to a named one */
 export async function ensureToken(): Promise<string> {
@@ -107,7 +137,7 @@ export async function ensureToken(): Promise<string> {
 	}
 
 	if (!pendingAcquire) {
-		pendingAcquire = acquireToken(token).finally(() => { pendingAcquire = null })
+		pendingAcquire = withRenewalLock(() => acquireToken(token)).finally(() => { pendingAcquire = null })
 	}
 	return pendingAcquire
 }
@@ -130,3 +160,31 @@ export const authorizedFetch = async (url: string, init?: RequestInit) => {
 
 export const postToUsers = async (action: 'Promote' | 'Login', body: unknown) =>
 	storeAuth(await authorizedFetch(`/Users/${action}`, { method: 'POST', body: JSON.stringify(body) }))
+
+/** Signs this device out (revoking its refresh token server-side). The next request mints a fresh guest */
+export async function logout() {
+	const refreshToken = localStorage.getItem(REFRESH_TOKEN_KEY)
+	clearAuth()
+	if (refreshToken) {
+		await fetch('/Users/Logout', {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({ refreshToken }),
+		}).catch(() => {})
+	}
+}
+
+/** Revokes every device's refresh token for this account, then signs this one out too */
+export async function logoutEverywhere() {
+	const response = await authorizedFetch('/Users/LogoutEverywhere', { method: 'POST' })
+	if (!response.ok) {
+		throw new Error(await response.text() || `Request failed: ${response.status}`)
+	}
+	clearAuth()
+}
+
+/** Abandons whatever (expired) session is stored and carries on as a brand new anonymous guest */
+export async function startNewGuestSession() {
+	clearAuth()
+	await ensureToken()
+}

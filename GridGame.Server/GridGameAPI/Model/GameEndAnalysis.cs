@@ -30,39 +30,11 @@ namespace GridGameAPI.Model
             return true;
         }
 
-        /// <summary>Final score per player (index 0 = player 1): tiles they already own, plus every unclaimed tile
-        /// only they could ever have reached. Expensive (a full flood fill per player) - call once, when
-        /// IsGameOver first becomes true</summary>
-        public static int[] ComputeScores(int[,] board, int playerCount)
-        {
-            var rows = board.GetLength(0);
-            var columns = board.GetLength(1);
-            var scores = new int[playerCount];
-
-            foreach (var value in board)
-            {
-                if (value >= 1 && value <= playerCount)
-                {
-                    scores[value - 1]++;
-                }
-            }
-
-            for (var player = 1; player <= playerCount; player++)
-            {
-                var (expandable, _) = ReachabilityAnalysis.TraverseReachable(board, player);
-                for (var x = 0; x < rows; x++)
-                {
-                    for (var y = 0; y < columns; y++)
-                    {
-                        if (expandable[x, y] && board[x, y] == UtilityInfrastructure.TileState.Unclaimed)
-                        {
-                            scores[player - 1]++;
-                        }
-                    }
-                }
-            }
-
-            return scores;
-        }
+        /// <summary>Score per player (index 0 = player 1) if the game ended with the board as it stands: tiles they
+        /// already own, plus every unclaimed tile only they can reach (BoardAnalysis.Projected). At a natural game
+        /// over this is exact - nobody can reach anybody, so there are no contested cells and no threats left - and
+        /// it's also what a resignation settles on, leaving contested cells unscored</summary>
+        public static int[] ComputeScores(int[,] board, int playerCount) =>
+            BoardAnalysis.Compute(board, playerCount).Players.Select(player => player.Projected).ToArray();
     }
 }

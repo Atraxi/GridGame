@@ -1,15 +1,29 @@
 import type { CSSProperties } from "react";
 import type { GridGame } from "../../model/GridGame";
 import { moveHintFor } from "../../model/moves";
-import Tile, { UNCLAIMED } from "./Tile";
+import Tile, { UNCLAIMED, type Territory } from "./Tile";
+import { CellInsight, type BoardAnalysis } from "../../model/analysis";
 import "./Board.css";
 
 type JumpChoice = { x: number, y: number, origins: { x: number, y: number }[] }
 
-export default function Board({ gameState, myPlayerNumber, jumpChoice, onTileClicked }: {
+/** Only meaningful for unclaimed tiles - owned tiles already show their owner */
+function territoryAt(analysis: BoardAnalysis, row: number, column: number): Territory | undefined {
+	const player = analysis.claimant[row]?.[column] ?? 0
+	switch (analysis.insight[row]?.[column]) {
+		case CellInsight.UncontestedSecure: return { kind: 'secure', player }
+		case CellInsight.UncontestedAtRisk: return { kind: 'at-risk', player }
+		case CellInsight.Unreachable: return { kind: 'unreachable' }
+		default: return undefined
+	}
+}
+
+export default function Board({ gameState, myPlayerNumber, jumpChoice, analysis, onTileClicked }: {
 	gameState: GridGame,
 	myPlayerNumber: number | null,
 	jumpChoice: JumpChoice | null,
+	/** Shown as a territory overlay on unclaimed tiles when present */
+	analysis?: BoardAnalysis | null,
 	onTileClicked: (x: number, y: number) => () => Promise<any> | undefined
 }) {
 	const board = gameState.gameBoard
@@ -36,6 +50,7 @@ export default function Board({ gameState, myPlayerNumber, jumpChoice, onTileCli
 								left: ownerAt(rowIndex, columnIndex - 1) !== owner,
 							}}
 							moveHint={isJumpOrigin ? 'jump-origin' : moveHint}
+							territory={analysis ? territoryAt(analysis, rowIndex, columnIndex) : undefined}
 							onTileClicked={onTileClicked(rowIndex, columnIndex)}
 						/>
 					)

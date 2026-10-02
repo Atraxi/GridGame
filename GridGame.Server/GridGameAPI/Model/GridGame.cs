@@ -28,6 +28,10 @@ namespace GridGameAPI.Model
 
         public bool IsGameOver { get; set; }
 
+        /// <summary>Set if the game ended because this player resigned, rather than by play running out of contested
+        /// moves. Resigning ends the game for everyone, scored as the board stands (see GameEndAnalysis.ComputeScores)</summary>
+        public int? ResignedPlayerNumber { get; set; }
+
         /// <summary>Final tile count per player (index 0 = player 1), set once when IsGameOver first becomes true.
         /// Deliberately excluded from the general JSON representation (GetGame, SignalR broadcasts) - this and other
         /// meta score stats are a named-account-only feature, served only via GamesController.GetFinalScores</summary>

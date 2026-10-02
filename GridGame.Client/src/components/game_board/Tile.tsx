@@ -25,8 +25,23 @@ const MOVE_HINT_LABEL: Record<MoveHint, string> = {
 	'jump-origin': 'jump from here',
 }
 
-export default function Tile({ owner, edges, moveHint, onTileClicked, onTileEntered }: {
-	owner: number, edges: Edges, moveHint?: MoveHint,
+/** Overlay for an unclaimed tile, from the board analysis */
+export type Territory =
+	| { kind: 'secure' | 'at-risk', player: number }
+	| { kind: 'unreachable' }
+
+function territoryLabel(territory: Territory) {
+	switch (territory.kind) {
+		case 'secure': return `only player ${territory.player} can reach it`
+		case 'at-risk': return `only player ${territory.player} can reach it, but they could still be cut off from it`
+		case 'unreachable': return 'nobody can reach it'
+	}
+}
+
+const playerColour = (player: number) => `var(--player-${((player - 1) % PALETTE_SIZE) + 1})`
+
+export default function Tile({ owner, edges, moveHint, territory, onTileClicked, onTileEntered }: {
+	owner: number, edges: Edges, moveHint?: MoveHint, territory?: Territory,
 	onTileClicked: () => Promise<any> | undefined,
 	//Lets a caller support drag-painting (e.g. the map editor) - only fires while the pointer is already held down over the board
 	onTileEntered?: () => void,
@@ -39,7 +54,11 @@ export default function Tile({ owner, edges, moveHint, onTileClicked, onTileEnte
 		classes.push(...CORNERS.filter(([, a, b]) => edges[a] && edges[b]).map(([corner]) => `corner-${corner}`))
 	} else {
 		classes.push(owner === DEAD ? 'tile--dead' : 'tile--unclaimed')
+		if (territory && owner !== DEAD) {
+			classes.push(`tile--${territory.kind === 'unreachable' ? 'unreachable' : `territory-${territory.kind}`}`)
+		}
 	}
+	const colourPlayer = isClaimed ? owner : territory && 'player' in territory ? territory.player : null
 
 	if (moveHint) {
 		classes.push(`tile--${moveHint}`)
@@ -48,11 +67,12 @@ export default function Tile({ owner, edges, moveHint, onTileClicked, onTileEnte
 	return (
 		<button
 			className={classes.join(' ')}
-			style={isClaimed ? { '--player': `var(--player-${((owner - 1) % PALETTE_SIZE) + 1})` } as CSSProperties : undefined}
+			style={colourPlayer != null ? { '--player': playerColour(colourPlayer) } as CSSProperties : undefined}
 			onClick={onTileClicked}
 			onMouseEnter={onTileEntered}
 			aria-label={[
 				isClaimed ? `Tile held by player ${owner}` : owner === DEAD ? 'Dead tile' : 'Unclaimed tile',
+				!isClaimed && territory && territoryLabel(territory),
 				moveHint && MOVE_HINT_LABEL[moveHint],
 			].filter(Boolean).join(', ')}
 		/>

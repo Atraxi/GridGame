@@ -32,3 +32,27 @@
 	color: var(--text-muted, var(--text));
 	font-style: italic;
 }
+
+.presence-notice {
+	text-align: center;
+	color: var(--text-h);
+	font-weight: 600;
+}
+
+.resign-offer {
+	text-align: center;
+}
+
+.resign-offer button {
+	margin-left: 8px;
+}
+
+.territory-toggle {
+	text-align: center;
+	font-size: 14px;
+}
+
+.territory-toggle input {
+	margin-right: 6px;
+	vertical-align: middle;
+}

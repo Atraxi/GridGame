@@ -1,0 +1,98 @@
+.game-analysis {
+	max-width: 640px;
+	margin: 16px auto;
+	font-size: 14px;
+}
+
+.game-analysis__scroll {
+	overflow-x: auto;
+}
+
+.game-analysis table {
+	border-collapse: collapse;
+	margin: 0 auto;
+}
+
+.game-analysis th,
+.game-analysis td {
+	padding: 4px 10px;
+	border-bottom: 1px solid var(--border);
+	text-align: right;
+	white-space: nowrap;
+}
+
+.game-analysis tbody th {
+	text-align: left;
+	font-weight: normal;
+	cursor: help;
+}
+
+.game-analysis__emphasis td,
+.game-analysis__emphasis th {
+	font-weight: 600;
+	color: var(--text-h);
+}
+
+.game-analysis__swatch {
+	display: inline-block;
+	width: 10px;
+	height: 10px;
+	border-radius: 3px;
+	margin-right: 6px;
+	vertical-align: middle;
+}
+
+.game-analysis__summary {
+	display: flex;
+	flex-wrap: wrap;
+	justify-content: center;
+	gap: 4px 20px;
+	margin: 12px 0 0;
+}
+
+.game-analysis__summary div {
+	display: flex;
+	gap: 6px;
+	min-width: 0;
+}
+
+.game-analysis__summary dt {
+	color: var(--text-h);
+}
+
+.game-analysis__summary dd {
+	margin: 0;
+}
+
+.game-analysis__note {
+	font-size: 12px;
+	font-style: italic;
+	text-align: center;
+}
+
+.game-analysis__definitions {
+	margin-top: 12px;
+	text-align: left;
+}
+
+.game-analysis__definitions summary {
+	cursor: pointer;
+	text-align: center;
+}
+
+.game-analysis__definitions dl {
+	margin: 8px 0;
+}
+
+.game-analysis__definitions dl div {
+	margin-bottom: 6px;
+}
+
+.game-analysis__definitions dt {
+	font-weight: 600;
+	color: var(--text-h);
+}
+
+.game-analysis__definitions dd {
+	margin: 0 0 0 12px;
+}
