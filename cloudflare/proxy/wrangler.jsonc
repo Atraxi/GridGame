@@ -1,0 +1,14 @@
+// Deployed by the `proxy` job in .github/workflows/deploy.yml. See DEPLOYMENT.md, "Custom domains".
+{
+  "name": "gridgame-proxy",
+  "main": "src/index.js",
+  "compatibility_date": "2026-09-01",
+
+  // The custom domain is attached by hand in the Cloudflare dashboard, so no routes are declared here.
+  // The workers.dev URL stays on as a way to test the proxy before (or without) a domain.
+  "workers_dev": true,
+  "preview_urls": false
+
+  // ORIGIN_HOST (the web app's *.azurewebsites.net hostname) is passed with --var at deploy time,
+  // taken from the Bicep deployment's output so it can never drift from the real app.
+}

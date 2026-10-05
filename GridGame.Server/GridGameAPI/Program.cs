@@ -41,8 +41,7 @@ builder.Services.AddHostedService<SessionMonitor>();
 //needs authentication - a missing key should stop the app at startup, where it is obvious, rather than surfacing as a
 //500 on some later request.
 //Deliberately not committed to this public repo: locally it comes from user secrets
-//(`dotnet user-secrets set "Jwt:Key" "<value>"`), and in Azure from the Jwt__Key app setting that
-//infra/main.bicep populates from a GitHub Actions secret
+//(`dotnet user-secrets set "Jwt:Key" "<value>"`), and in Azure from the Jwt__Key app setting
 var jwtSigningKey = builder.Configuration["Jwt:Key"]
     ?? throw new InvalidOperationException(
         "No JWT signing key is configured. Locally, run: dotnet user-secrets set \"Jwt:Key\" " +

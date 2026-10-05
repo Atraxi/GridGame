@@ -1,15 +1,15 @@
 name: Deploy to Azure
 
-# Infrastructure and application are deployed together: infra/main.bicep is applied first (it is
-# idempotent, so re-running it just reconciles the resource group), then the built app is pushed to
-# the web app whose name the template reports back.
+# Ships the application to an existing web app, and optionally the Cloudflare proxy in front of it.
+#
+# Infrastructure is provisioned by hand in the portal (see DEPLOYMENT.md); this workflow never creates or changes an
+# Azure resource, it only deploys code to the web app named by the AZURE_WEBAPP_NAME repository variable.
 #
 # Authentication uses GitHub OIDC - there is no publish profile or client secret stored anywhere.
-# scripts/setup-azure.ps1 creates the federated credential and populates the secrets below.
 
 on:
   push:
-    branches: [master]
+    branches: [claudes-version]
     paths-ignore:
       - '**/*.md'
       - '.gitignore'
@@ -31,42 +31,6 @@ env:
   API_PROJECT: GridGame.Server/GridGameAPI/GridGameAPI.csproj
 
 jobs:
-  infrastructure:
-    name: Provision infrastructure
-    runs-on: ubuntu-latest
-    outputs:
-      webAppName: ${{ steps.deploy.outputs.webAppName }}
-      webAppUrl: ${{ steps.deploy.outputs.webAppUrl }}
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Sign in to Azure
-        uses: azure/login@v2
-        with:
-          client-id: ${{ secrets.AZURE_CLIENT_ID }}
-          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
-          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-
-      - name: Deploy infra/main.bicep
-        id: deploy
-        env:
-          RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP }}
-          SQL_ADMIN_PASSWORD: ${{ secrets.SQL_ADMIN_PASSWORD }}
-          JWT_SIGNING_KEY: ${{ secrets.JWT_SIGNING_KEY }}
-        run: |
-          set -euo pipefail
-          # Secrets are passed through the environment rather than interpolated into the command
-          # line, so they never reach the process table or the job log.
-          outputs=$(az deployment group create \
-            --resource-group "$RESOURCE_GROUP" \
-            --name "gridgame-$GITHUB_RUN_NUMBER" \
-            --template-file infra/main.bicep \
-            --parameters sqlAdminPassword="$SQL_ADMIN_PASSWORD" jwtSigningKey="$JWT_SIGNING_KEY" \
-            --query properties.outputs \
-            --output json)
-          echo "webAppName=$(echo "$outputs" | jq -r .webAppName.value)" >> "$GITHUB_OUTPUT"
-          echo "webAppUrl=$(echo "$outputs" | jq -r .webAppUrl.value)" >> "$GITHUB_OUTPUT"
-
   build:
     name: Build client and API
     runs-on: ubuntu-latest
@@ -103,10 +67,15 @@ jobs:
   deploy:
     name: Deploy application
     runs-on: ubuntu-latest
-    needs: [infrastructure, build]
+    needs: build
+    outputs:
+      hostName: ${{ steps.site.outputs.hostName }}
     environment:
       name: production
-      url: ${{ needs.infrastructure.outputs.webAppUrl }}
+      url: https://${{ steps.site.outputs.hostName }}
+    env:
+      RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP }}
+      WEB_APP_NAME: ${{ vars.AZURE_WEBAPP_NAME }}
     steps:
       - uses: actions/download-artifact@v4
         with:
@@ -120,10 +89,44 @@ jobs:
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
+      # Asked of Azure rather than assumed: a web app created in the portal with "unique default hostname" on gets
+      # <name>-<hash>.<region>-01.azurewebsites.net, not <name>.azurewebsites.net.
+      - name: Look up the web app
+        id: site
+        run: |
+          set -euo pipefail
+          if [ -z "$WEB_APP_NAME" ]; then
+            echo "::error::Set the AZURE_WEBAPP_NAME repository variable."
+            exit 1
+          fi
+          host=$(az webapp show --resource-group "$RESOURCE_GROUP" --name "$WEB_APP_NAME" \
+            --query defaultHostName --output tsv)
+          echo "hostName=$host" >> "$GITHUB_OUTPUT"
+
       - uses: azure/webapps-deploy@v3
         with:
-          app-name: ${{ needs.infrastructure.outputs.webAppName }}
+          app-name: ${{ env.WEB_APP_NAME }}
           package: publish
 
       - name: Summarise
-        run: echo "Deployed to ${{ needs.infrastructure.outputs.webAppUrl }}" >> "$GITHUB_STEP_SUMMARY"
+        run: echo "Deployed to https://${{ steps.site.outputs.hostName }}" >> "$GITHUB_STEP_SUMMARY"
+
+  # Optional: the Cloudflare Worker that fronts the web app with a custom domain, which the free App Service plan
+  # can't bind itself. Skipped until the CLOUDFLARE_ACCOUNT_ID repository variable exists. The Cloudflare side
+  # (API token, attaching the domain to the Worker) is set up by hand - see DEPLOYMENT.md, "Custom domains".
+  proxy:
+    name: Deploy Cloudflare proxy
+    runs-on: ubuntu-latest
+    needs: deploy
+    if: vars.CLOUDFLARE_ACCOUNT_ID != ''
+    steps:
+      - uses: actions/checkout@v4
+
+      # ORIGIN_HOST is the hostname Azure itself reported in the deploy job, so the two can't drift.
+      - uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          wranglerVersion: '4.146.0'
+          workingDirectory: cloudflare/proxy
+          command: deploy --var ORIGIN_HOST:${{ needs.deploy.outputs.hostName }}
