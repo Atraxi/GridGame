@@ -126,7 +126,7 @@ jobs:
       - uses: cloudflare/wrangler-action@v3
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          accountId: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           wranglerVersion: '4.146.0'
           workingDirectory: cloudflare/proxy
           command: deploy --var ORIGIN_HOST:${{ needs.deploy.outputs.hostName }}
