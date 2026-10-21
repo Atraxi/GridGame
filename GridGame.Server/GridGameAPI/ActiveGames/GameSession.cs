@@ -17,8 +17,27 @@ namespace GridGameAPI.ActiveGames
         /// perk like final scores, so it's only ever broadcast to these</summary>
         public ConcurrentDictionary<string, byte> NamedAccountConnections { get; } = new();
 
-        /// <summary>Player number each user owns tiles as, assigned in join order. Only mutated under MembershipLock</summary>
+        /// <summary>Player number each user owns tiles as. Locked seats (see GameSeat) are filled in when the session
+        /// is loaded; the rest are handed out in join order. Only mutated under MembershipLock</summary>
         public ConcurrentDictionary<string, int> PlayerNumbers { get; } = new();
+
+        /// <summary>Everyone who has connected since this session was loaded. A locked seat's holder who isn't among
+        /// them is away, rather than disconnected</summary>
+        public ConcurrentDictionary<string, byte> SeenUsers { get; } = new();
+
+        /// <summary>Users whose seat is locked to their account (a subset of PlayerNumbers' keys)</summary>
+        public ConcurrentDictionary<string, byte> LockedSeats { get; } = new();
+
+        /// <summary>For an invite-only game, the users allowed to take a seat. Null when anyone may</summary>
+        public required IReadOnlySet<string>? InvitedUserIds { get; init; }
+
+        /// <summary>Users known to be on named accounts. Only they get a past-opponents history (see
+        /// GridGameHub.RecordOpponents)</summary>
+        public ConcurrentDictionary<string, byte> NamedUsers { get; } = new();
+
+        /// <summary>Named users who have made a move since this session was loaded, or held a locked seat they'd
+        /// already moved from - the ones who count as having played each other. Only mutated under MoveLock</summary>
+        public HashSet<string> ActiveNamedUsers { get; } = [];
 
         /// <summary>Display name per user id, captured from their token when they join</summary>
         public ConcurrentDictionary<string, string> UserNames { get; } = new();
@@ -53,6 +72,23 @@ namespace GridGameAPI.ActiveGames
         public IEnumerable<string> ConnectionsFor(string userId) =>
             Connections.Where(connection => connection.Value == userId).Select(connection => connection.Key);
 
+        /// <summary>Gives the user the lowest-numbered free seat, unless they already have one, the game is invite-only
+        /// and they aren't invited, or every seat is taken. Call under MembershipLock</summary>
+        public void TryTakeSeat(string userId)
+        {
+            if (PlayerNumbers.ContainsKey(userId) || InvitedUserIds?.Contains(userId) == false)
+            {
+                return;
+            }
+            //Lowest free rather than Count + 1: a locked seat restored at load can leave a gap below it
+            var taken = PlayerNumbers.Values.ToHashSet();
+            var free = Enumerable.Range(1, GridGame.PlayerCount).FirstOrDefault(seat => !taken.Contains(seat));
+            if (free != 0)
+            {
+                PlayerNumbers[userId] = free;
+            }
+        }
+
         /// <summary>One entry per seat, for the "player disconnected / not responding" notices</summary>
         public object[] Presence()
         {
@@ -62,12 +98,12 @@ namespace GridGameAPI.ActiveGames
             {
                 if (!seatHolders.TryGetValue(playerNumber, out var userId))
                 {
-                    return (object)new { playerNumber, userName = (string?)null, status = "open" };
+                    return (object)new { playerNumber, userName = (string?)null, status = "open", locked = false };
                 }
-                var status = !connectedUsers.Contains(userId) ? "disconnected"
+                var status = !connectedUsers.Contains(userId) ? (SeenUsers.ContainsKey(userId) ? "disconnected" : "away")
                     : UnresponsiveUsers.ContainsKey(userId) ? "unresponsive"
                     : "connected";
-                return (object)new { playerNumber, userName = UserNames.GetValueOrDefault(userId), status };
+                return (object)new { playerNumber, userName = UserNames.GetValueOrDefault(userId), status, locked = LockedSeats.ContainsKey(userId) };
             }).ToArray();
         }
     }

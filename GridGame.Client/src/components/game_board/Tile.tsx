@@ -50,13 +50,15 @@ function opponentMoveLabel({ kind, player }: OpponentMove) {
 
 const playerColour = (player: number) => `var(--player-${((player - 1) % PALETTE_SIZE) + 1})`
 
-export default function Tile({ owner, edges, moveHint, territory, opponentMove, historyMark, onTileClicked, onTileEntered }: {
+export default function Tile({ owner, edges, moveHint, territory, opponentMove, historyMark, onTileClicked, cell }: {
 	owner: number, edges: Edges, moveHint?: MoveHint, territory?: Territory,
 	opponentMove?: OpponentMove,
 	historyMark?: HistoryMark,
-	onTileClicked: () => unknown,
-	//Lets a caller support drag-painting (e.g. the map editor) - only fires while the pointer is already held down over the board
-	onTileEntered?: () => void,
+	/** Without one, the tile is drawn as plain decoration rather than a button - for pictures of a board (the home page's
+	 * rule clips, the map editor's palette) that would otherwise add a tab stop per tile, or nest a button in a button */
+	onTileClicked?: () => unknown,
+	/** Written to data-row/data-column, so a drag across the board can find the tile under the pointer (see CreateMapPage) */
+	cell?: { row: number, column: number },
 }) {
 	const isClaimed = owner > UNCLAIMED
 	const classes = ['tile']
@@ -89,12 +91,17 @@ export default function Tile({ owner, edges, moveHint, territory, opponentMove, 
 		classes.push(`tile--history-${historyMark}`)
 	}
 
+	if (!onTileClicked) {
+		return <div className={classes.join(' ')} style={style as CSSProperties} />
+	}
+
 	return (
 		<button
 			className={classes.join(' ')}
 			style={style as CSSProperties}
 			onClick={onTileClicked}
-			onMouseEnter={onTileEntered}
+			data-row={cell?.row}
+			data-column={cell?.column}
 			aria-label={[
 				isClaimed ? `Tile held by player ${owner}` : owner === DEAD ? 'Dead tile' : 'Unclaimed tile',
 				!isClaimed && territory && territoryLabel(territory),

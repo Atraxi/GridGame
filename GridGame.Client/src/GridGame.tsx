@@ -8,6 +8,7 @@ import type { GridGame } from "./model/GridGame";
 import type { BoardAnalysis, FinalResults } from "./model/analysis";
 import { computeStateHash } from "./model/stateHash";
 import { actionFromPush, boardAfter, type GameAction, type MoveHistory as MoveHistoryResponse } from "./model/history";
+import { moveHintFor, type MoveHint } from "./model/moves";
 import { authorizedFetch, ensureToken, getTokenExpiryMs, isGuest, SessionExpiredError } from "./auth";
 import { loginRedirectPath } from "./loaders";
 import "./GridGame.css";
@@ -27,7 +28,14 @@ type StatePush = {
     requiresAck: boolean,
     informallyDecidedFor: number | null,
 }
-type PresenceEntry = { playerNumber: number, userName: string | null, status: 'connected' | 'unresponsive' | 'disconnected' | 'open' }
+type PresenceEntry = {
+    playerNumber: number,
+    userName: string | null,
+    /** 'away' is a locked seat whose holder hasn't been in since the game was last reopened */
+    status: 'connected' | 'unresponsive' | 'disconnected' | 'away' | 'open',
+    /** Held for good by its owner's account (see GridGameHub.LockSeat) */
+    locked: boolean,
+}
 /** GridGameHub.GetGameState */
 type Snapshot = {
     gameBoard: number[][],
@@ -44,13 +52,25 @@ type Snapshot = {
 type MoveRejected = { x: number, y: number, reason: 'spectating' | 'notYourTurn' | 'unreachable' | 'gameOver' }
 
 const REJECTION_MESSAGES: Record<MoveRejected['reason'], string> = {
-    spectating: "This game's seats are full - you're only spectating.",
+    spectating: "Every seat in this game is taken - you're only watching.",
     notYourTurn: "It's not your turn.",
     unreachable: "That tile can't be reached from any of your tiles.",
     gameOver: "This game has already ended.",
 }
 
 const SHOW_OPPONENT_MOVES_KEY = 'gridgame.showOpponentMoves'
+
+//Everything runs on free tiers that sleep when idle, and waking takes up to a minute or so - longer than SignalR's
+//default reconnect policy waits (four tries over about 45 seconds). So: a few quick tries, then every 15 seconds,
+//for up to ten minutes. After that it gives up until the tab is next shown (see the visibilitychange handler)
+const RECONNECT_DELAYS_MS = [0, 2_000, 5_000, 10_000]
+const RECONNECT_GIVE_UP_MS = 10 * 60_000
+const reconnectPolicy: signalR.IRetryPolicy = {
+    nextRetryDelayInMilliseconds: ({ previousRetryCount, elapsedMilliseconds }) =>
+        elapsedMilliseconds > RECONNECT_GIVE_UP_MS ? null : RECONNECT_DELAYS_MS[previousRetryCount] ?? 15_000,
+}
+
+const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms))
 
 //A per-browser preference, so storage being unavailable (private mode, blocked site data) just means the default
 const readShowOpponentMoves = () => {
@@ -60,6 +80,9 @@ const readShowOpponentMoves = () => {
         return true
     }
 }
+
+/** A move tapped on a touch screen, waiting for a second tap to confirm it (see onTileClicked) */
+type PendingMove = { x: number, y: number, kind: MoveHint }
 
 const playerLabel = (entry: PresenceEntry) =>
     `Player ${entry.playerNumber}${entry.userName && !entry.userName.startsWith('Guest-') ? ` (${entry.userName})` : ''}`
@@ -88,6 +111,10 @@ export default function GridGamePage() {
     const [historyError, setHistoryError] = useState<string | null>(null)
     //How many actions the board on screen has had applied while stepping through the history; null shows live play
     const [historyPosition, setHistoryPosition] = useState<number | null>(null)
+    const [pendingMove, setPendingMove] = useState<PendingMove | null>(null)
+    //How the last press on the board was made. Touch needs a confirming second tap: fingers are imprecise, tiles on a
+    //phone are small, and a move can't be taken back. Read from pointerdown, which reliably reports the pointer type
+    const lastPointerType = useRef<string>('mouse')
 
     //The authoritative client-side copy of the game, and its hash. Kept in refs rather than derived from React state
     //because pushes have to be checked and applied strictly in arrival order, synchronously - React state updates
@@ -204,6 +231,7 @@ export default function GridGamePage() {
                     setAnalysis(snapshot.analysis)
                 }
                 setJumpChoice(null)
+                setPendingMove(null)
                 //Pushes sent before the snapshot was taken no longer chain on and are skipped; ones sent after it do
                 resyncRef.current.buffered.forEach(push => applyPush(push))
                 await acknowledge(hub)
@@ -228,6 +256,7 @@ export default function GridGamePage() {
                 }
                 if (result === 'applied') {
                     setJumpChoice(null)
+                    setPendingMove(null)
                     setStatusMessage(null)
                 }
                 if (push.requiresAck) {
@@ -257,7 +286,10 @@ export default function GridGamePage() {
 
             hub.on('moveRejected', (rejection: MoveRejected) => {
                 setJumpChoice(null)
-                setStatusMessage(REJECTION_MESSAGES[rejection.reason] ?? "That move isn't allowed.")
+                setPendingMove(null)
+                setStatusMessage(rejection.reason === 'spectating' && modelRef.current.isInviteOnly
+                    ? "This game is invite-only - you're only watching."
+                    : REJECTION_MESSAGES[rejection.reason] ?? "That move isn't allowed.")
             })
 
             hub.on('chooseJumpOrigin', (choice: JumpChoice) => {
@@ -279,8 +311,10 @@ export default function GridGamePage() {
             //it only passes an error when the close was actually abnormal, so that's what distinguishes a real
             //problem from a routine teardown
             hub.onclose(error => {
-                if (error) {
-                    setStatusMessage('Disconnected - refresh the page to reconnect.')
+                if (error && !cancelled && hub === activeConnection) {
+                    //Automatic reconnection has run out of tries - start again with a whole new connection
+                    setStatusMessage('Connection lost, reconnecting...')
+                    recover()
                 }
             })
         }
@@ -290,29 +324,88 @@ export default function GridGamePage() {
                 //Relative, so the hub is found wherever the app is served from: through the Vite proxy in
                 //development, and on the app's own origin once the client is published into the API's wwwroot
                 .withUrl("/GridGame", { accessTokenFactory: ensureToken })
-                .withAutomaticReconnect()
+                .withAutomaticReconnect(reconnectPolicy)
                 .configureLogging(signalR.LogLevel.Debug)
                 .build()
 
             attachHandlers(hub)
 
-            await hub.start()
-            if (cancelled) {
-                await hub.stop()
-                return null
-            }
+            try {
+                await hub.start()
+                if (cancelled) {
+                    await hub.stop()
+                    return null
+                }
 
-            const playerNumber = await hub.invoke<number>("onConnectedToGame", initialState.id)
-            if (cancelled) {
-                await hub.stop()
-                return null
-            }
+                const playerNumber = await hub.invoke<number>("onConnectedToGame", initialState.id)
+                if (cancelled) {
+                    await hub.stop()
+                    return null
+                }
 
-            setMyPlayerNumber(playerNumber)
-            //The loader's copy of the game may already be a few moves old by the time the hub is connected
-            await resync(hub)
-            return hub
+                setMyPlayerNumber(playerNumber)
+                //The loader's copy of the game may already be a few moves old by the time the hub is connected
+                await resync(hub)
+                return hub
+            } catch (error) {
+                //Started but failed to register, say - don't leave it running unused
+                hub.stop()
+                throw error
+            }
         }
+
+        /** connect, retried for a few minutes - a first connection to a server that's asleep fails until it wakes */
+        const connectPatiently = async (): Promise<signalR.HubConnection | null> => {
+            const started = Date.now()
+            let delay = 2_000
+            while (!cancelled) {
+                try {
+                    const hub = await connect()
+                    setStatusMessage(null)
+                    return hub
+                } catch (error) {
+                    if (error instanceof SessionExpiredError || Date.now() - started > 5 * 60_000) {
+                        throw error
+                    }
+                    setStatusMessage('Connecting to the game - the server may be waking up, which can take a minute...')
+                    await sleep(delay)
+                    delay = Math.min(delay * 2, 15_000)
+                }
+            }
+            return null
+        }
+
+        /** Starts over with a brand new connection, once the old one is beyond saving */
+        let recovering = false
+        const recover = () => {
+            if (recovering || cancelled) {
+                return
+            }
+            recovering = true
+            connectPatiently()
+                .then(hub => {
+                    if (hub) {
+                        if (rotateTimer) {
+                            clearTimeout(rotateTimer)
+                        }
+                        activeConnection = hub
+                        setConnection(hub)
+                        scheduleRotation(hub)
+                    }
+                })
+                .catch(handleConnectError)
+                .finally(() => { recovering = false })
+        }
+
+        //A phone that slept with the page open, or a tab left in the background, may come back to a connection that
+        //gave up while it was away
+        const onVisibilityChange = () => {
+            if (document.visibilityState === 'visible' && activeConnection?.state === signalR.HubConnectionState.Disconnected) {
+                setStatusMessage('Connection lost, reconnecting...')
+                recover()
+            }
+        }
+        document.addEventListener('visibilitychange', onVisibilityChange)
 
         //Proactively cycles the connection onto a fresh access token shortly before the current one expires, so a
         //long-running session doesn't outlive it and get silently rejected on its next hub call
@@ -327,7 +420,7 @@ export default function GridGamePage() {
                 //The replacement connects and registers itself with the server BEFORE the old one closes - the hub
                 //tears down a game's whole session when its connection count hits zero, so a solo player must never
                 //have zero connections registered in between, or they could come back reassigned a different player number
-                const next = await connect().catch(handleConnectError)
+                const next = await connectPatiently().catch(handleConnectError)
                 if (!next) {
                     return
                 }
@@ -343,12 +436,12 @@ export default function GridGamePage() {
                 navigate(loginRedirectPath(), { replace: true })
             } else {
                 console.log('Error while starting connection: ' + error)
-                setStatusMessage("Couldn't connect to the game - refresh the page to try again.")
+                setStatusMessage("Couldn't reach the game server. It'll try again when you come back to this tab, or refresh the page to try now.")
             }
             return null
         }
 
-        connect()
+        connectPatiently()
             .then(hub => {
                 if (!hub) {
                     return
@@ -361,6 +454,7 @@ export default function GridGamePage() {
 
         return () => {
             cancelled = true
+            document.removeEventListener('visibilitychange', onVisibilityChange)
             if (rotateTimer) {
                 clearTimeout(rotateTimer)
             }
@@ -430,6 +524,7 @@ export default function GridGamePage() {
 
     const changeHistoryPosition = (position: number | null) => {
         setJumpChoice(null)
+        setPendingMove(null)
         setHistoryPosition(position)
     }
 
@@ -457,22 +552,36 @@ export default function GridGamePage() {
         if (!isMyTurn) {
             return
         }
-        return connection.invoke("requestMove", x, y)
+        //A tap only selects a legal move; tapping the same tile again (or the confirm bar's button) makes it. Anything
+        //else goes straight to the server, which says why it isn't allowed
+        const kind = moveHintFor(gameState.gameBoard, myPlayerNumber, x, y)
+        if (lastPointerType.current === 'touch' && kind && (pendingMove?.x !== x || pendingMove?.y !== y)) {
+            setStatusMessage(null)
+            setPendingMove({ x, y, kind })
+            return
+        }
+        return makeMove(x, y)
     }
 
-    //Escape backs out of choosing a jump origin, same as clicking anywhere else on the board
+    const makeMove = (x: number, y: number) => {
+        setPendingMove(null)
+        return connection?.invoke("requestMove", x, y)
+    }
+
+    //Escape backs out of choosing a jump origin or a tapped move, same as clicking anywhere else on the board
     useEffect(() => {
-        if (!jumpChoice) {
+        if (!jumpChoice && !pendingMove) {
             return
         }
         const onKeyDown = (event: KeyboardEvent) => {
             if (event.key === 'Escape') {
                 setJumpChoice(null)
+                setPendingMove(null)
             }
         }
         window.addEventListener('keydown', onKeyDown)
         return () => window.removeEventListener('keydown', onKeyDown)
-    }, [jumpChoice])
+    }, [jumpChoice, pendingMove])
 
     const toggleOpponentMoves = (show: boolean) => {
         setShowOpponentMoves(show)
@@ -483,6 +592,10 @@ export default function GridGamePage() {
         }
     }
 
+    const lockSeat = () => {
+        connection?.invoke("lockSeat").catch(() => setStatusMessage("Couldn't lock your seat - check your connection and try again."))
+    }
+
     const resign = () => {
         if (connection && window.confirm('Resign and end the game for everyone? Scores are settled as the board stands.')) {
             connection.invoke("resign").catch(() => setStatusMessage("Couldn't resign - check your connection and try again."))
@@ -490,19 +603,20 @@ export default function GridGamePage() {
     }
 
     const presenceNotices = presence.filter(entry =>
-        entry.playerNumber !== myPlayerNumber && (entry.status === 'disconnected' || entry.status === 'unresponsive'))
+        entry.playerNumber !== myPlayerNumber && entry.status !== 'connected' && entry.status !== 'open')
     //Offered to anyone seated other than the player it's decided for - only a hint, the server allows it any time
     const canResign = !gameState.isGameOver && myPlayerNumber != null && myPlayerNumber > 0 &&
         informallyDecidedFor != null && informallyDecidedFor !== myPlayerNumber
     const isSeated = myPlayerNumber != null && myPlayerNumber > 0
     const opponentMovesShown = isSeated && showOpponentMoves && !gameState.isGameOver
+    const mySeatLocked = presence.some(entry => entry.playerNumber === myPlayerNumber && entry.locked)
+    const pendingMarks: MarkedCell[] | undefined = pendingMove ? [{ x: pendingMove.x, y: pendingMove.y, mark: 'landing' }] : undefined
 
     return (
-        <>
-            <h1>GridGame</h1>
-            <p>Game name: {gameState.name}</p>
+        <div className={`game-page${pendingMove ? ' game-page--confirming' : ''}`}>
+            <h1 className="game-page__title">{gameState.name}</h1>
             <p>
-                Click an unclaimed or enemy tile next to one of yours to spawn onto it, or two tiles away
+                Tap or click an unclaimed or enemy tile next to one of yours to spawn onto it, or two tiles away
                 (in a straight or diagonal line) to jump onto it - jumping leaves the tile you came from dead.
             </p>
             <p>
@@ -514,11 +628,36 @@ export default function GridGamePage() {
                         ? `Your turn - ${gameState.actionsRemainingInTurn} action${gameState.actionsRemainingInTurn === 1 ? '' : 's'} left.`
                         : `Waiting on player ${gameState.currentPlayerNumber}...`}
             </p>
+            {isSeated && !gameState.isGameOver && (
+                <div className="seat-panel">
+                    <span>
+                        <span className="seat-panel__swatch" style={{ background: `var(--player-${((myPlayerNumber - 1) % 6) + 1})` }} />
+                        You're player {myPlayerNumber}.
+                    </span>
+                    {mySeatLocked
+                        ? <span>This seat is locked to your account.</span>
+                        : isGuest()
+                            ? <span className="seat-panel__hint">Create a named account to lock this seat to you.</span>
+                            : <>
+                                <button type="button" onClick={lockSeat}>Lock my seat</button>
+                                <span className="seat-panel__hint">
+                                    Keeps player {myPlayerNumber} yours whenever this game is reopened, so nobody else can take it.
+                                </span>
+                            </>}
+                </div>
+            )}
+            {myPlayerNumber === 0 && !gameState.isGameOver && (
+                <p className="seat-panel">
+                    You're watching - {gameState.isInviteOnly ? 'this game is invite-only.' : 'every seat is taken.'}
+                </p>
+            )}
             {presenceNotices.map(entry => (
                 <p key={entry.playerNumber} className="presence-notice">
                     {entry.status === 'disconnected'
                         ? `${playerLabel(entry)} has disconnected.`
-                        : `${playerLabel(entry)} isn't responding - they may have lost their connection.`}
+                        : entry.status === 'away'
+                            ? `${playerLabel(entry)} isn't here right now - this seat is kept for them.`
+                            : `${playerLabel(entry)} isn't responding - they may have lost their connection.`}
                 </p>
             ))}
             {gameState.isGameOver && <FinalResultsSummary results={finalResults} />}
@@ -573,17 +712,35 @@ export default function GridGamePage() {
                     <button type="button" onClick={() => setJumpChoice(null)}>Cancel</button>
                 </div>
             )}
-            <Board
-                board={shownBoard}
-                playerCount={gameState.playerCount}
-                movesFor={isMyTurn && !viewingHistory ? myPlayerNumber : null}
-                opponentsOf={opponentMovesShown && !viewingHistory ? myPlayerNumber : null}
-                jumpChoice={viewingHistory ? null : jumpChoice}
-                //The analysis describes the live board, so it would be misleading over a past one
-                analysis={showTerritory && !gameState.isGameOver && !viewingHistory ? analysis : null}
-                historyMarks={historyMarks}
-                onTileClicked={onTileClicked}
-            />
+            <div onPointerDownCapture={event => { lastPointerType.current = event.pointerType }}>
+                <Board
+                    board={shownBoard}
+                    playerCount={gameState.playerCount}
+                    movesFor={isMyTurn && !viewingHistory ? myPlayerNumber : null}
+                    opponentsOf={opponentMovesShown && !viewingHistory ? myPlayerNumber : null}
+                    jumpChoice={viewingHistory ? null : jumpChoice}
+                    //The analysis describes the live board, so it would be misleading over a past one
+                    analysis={showTerritory && !gameState.isGameOver && !viewingHistory ? analysis : null}
+                    historyMarks={viewingHistory ? historyMarks : pendingMarks}
+                    onTileClicked={onTileClicked}
+                />
+            </div>
+            {/* Pinned to the bottom of the screen rather than placed above the board, so it never shifts the tile
+                that has to be tapped a second time */}
+            {pendingMove && !jumpChoice && (
+                <div className="move-confirm" role="alert">
+                    <p>
+                        {pendingMove.kind === 'spawn' ? 'Spawn here?' : 'Jump here? The tile you jump from dies.'}
+                        {' '}Tap it again to confirm.
+                    </p>
+                    <div className="move-confirm__buttons">
+                        <button type="button" onClick={() => setPendingMove(null)}>Cancel</button>
+                        <button type="button" className="move-confirm__go" onClick={() => makeMove(pendingMove.x, pendingMove.y)}>
+                            {pendingMove.kind === 'spawn' ? 'Spawn' : 'Jump'}
+                        </button>
+                    </div>
+                </div>
+            )}
             {isGuest()
                 ? <p className="score-prediction">Create a named account to see and replay the move history.</p>
                 : <details className="history-panel" open={historyOpen} onToggle={event => toggleHistory(event.currentTarget.open)}>
@@ -601,7 +758,7 @@ export default function GridGamePage() {
                 ? <GameAnalysis analysis={analysis} myPlayerNumber={myPlayerNumber} />
                 : isGuest() && <p className="score-prediction">Create a named account to see live board analysis.</p>)}
             {gameState.isGameOver && finalResults && <GameAnalysis analysis={finalResults.analysis} myPlayerNumber={myPlayerNumber} />}
-        </>
+        </div>
     )
 }
 

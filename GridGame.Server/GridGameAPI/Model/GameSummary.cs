@@ -11,5 +11,7 @@ namespace GridGameAPI.Model
         public int TurnNumber { get; set; }
 
         public bool IsGameOver { get; set; }
+
+        public bool IsInviteOnly { get; set; }
     }
 }

@@ -28,6 +28,10 @@ namespace GridGameAPI.Model
 
         public bool IsGameOver { get; set; }
 
+        /// <summary>Only the accounts listed in GameInvites (the host included) may take a seat. Anyone can still open
+        /// the game and spectate</summary>
+        public bool IsInviteOnly { get; set; }
+
         /// <summary>Set if the game ended because this player resigned, rather than by play running out of contested
         /// moves. Resigning ends the game for everyone, scored as the board stands (see GameEndAnalysis.ComputeScores)</summary>
         public int? ResignedPlayerNumber { get; set; }

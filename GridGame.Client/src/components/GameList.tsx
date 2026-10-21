@@ -130,6 +130,7 @@ export default function GameList() {
 								<tr key={gameSummary.id}>
 									<td className="game-list__name">
 										<Link to={`/gridgame/${gameSummary.id}`}>{gameSummary.name}</Link>
+										{gameSummary.isInviteOnly && <span className="game-list__badge" title="Only invited players can take a seat - anyone can watch">Invite only</span>}
 									</td>
 									<td className="game-list__created">{formatDate(gameSummary.creationDate)}</td>
 									<td>{gameSummary.turnNumber}</td>

@@ -22,6 +22,43 @@ namespace GridGameAPI.Database.Migrations
 
             SqlServerModelBuilderExtensions.UseIdentityColumns(modelBuilder);
 
+            modelBuilder.Entity("GridGameAPI.Model.GameInvite", b =>
+                {
+                    b.Property<int>("GridGameId")
+                        .HasColumnType("int");
+
+                    b.Property<string>("PlayerId")
+                        .HasColumnType("nvarchar(450)");
+
+                    b.HasKey("GridGameId", "PlayerId");
+
+                    b.HasIndex("PlayerId");
+
+                    b.ToTable("GameInvites");
+                });
+
+            modelBuilder.Entity("GridGameAPI.Model.GameSeat", b =>
+                {
+                    b.Property<int>("GridGameId")
+                        .HasColumnType("int");
+
+                    b.Property<int>("PlayerNumber")
+                        .HasColumnType("int");
+
+                    b.Property<string>("PlayerId")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(450)");
+
+                    b.HasKey("GridGameId", "PlayerNumber");
+
+                    b.HasIndex("PlayerId");
+
+                    b.HasIndex("GridGameId", "PlayerId")
+                        .IsUnique();
+
+                    b.ToTable("GameSeats");
+                });
+
             modelBuilder.Entity("GridGameAPI.Model.GridGame", b =>
                 {
                     b.Property<int>("Id")
@@ -50,6 +87,9 @@ namespace GridGameAPI.Database.Migrations
                         .HasColumnType("nvarchar(max)");
 
                     b.Property<bool>("IsGameOver")
+                        .HasColumnType("bit");
+
+                    b.Property<bool>("IsInviteOnly")
                         .HasColumnType("bit");
 
                     b.Property<string>("MoveLog")
@@ -111,6 +151,24 @@ namespace GridGameAPI.Database.Migrations
                     b.HasIndex("DesignedByPlayerId");
 
                     b.ToTable("Maps");
+                });
+
+            modelBuilder.Entity("GridGameAPI.Model.PastOpponent", b =>
+                {
+                    b.Property<string>("PlayerId")
+                        .HasColumnType("nvarchar(450)");
+
+                    b.Property<string>("OpponentId")
+                        .HasColumnType("nvarchar(450)");
+
+                    b.Property<DateTime>("LastPlayedAt")
+                        .HasColumnType("datetime2");
+
+                    b.HasKey("PlayerId", "OpponentId");
+
+                    b.HasIndex("OpponentId");
+
+                    b.ToTable("PastOpponents");
                 });
 
             modelBuilder.Entity("GridGameAPI.Model.Player", b =>
@@ -363,6 +421,40 @@ namespace GridGameAPI.Database.Migrations
                     b.ToTable("AspNetUserTokens", (string)null);
                 });
 
+            modelBuilder.Entity("GridGameAPI.Model.GameInvite", b =>
+                {
+                    b.HasOne("GridGameAPI.Model.GridGame", "Game")
+                        .WithMany()
+                        .HasForeignKey("GridGameId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("GridGameAPI.Model.Player", null)
+                        .WithMany()
+                        .HasForeignKey("PlayerId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Game");
+                });
+
+            modelBuilder.Entity("GridGameAPI.Model.GameSeat", b =>
+                {
+                    b.HasOne("GridGameAPI.Model.GridGame", null)
+                        .WithMany()
+                        .HasForeignKey("GridGameId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("GridGameAPI.Model.Player", "Player")
+                        .WithMany()
+                        .HasForeignKey("PlayerId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Player");
+                });
+
             modelBuilder.Entity("GridGameAPI.Model.Map", b =>
                 {
                     b.HasOne("GridGameAPI.Model.Player", "DesignedBy")
@@ -372,6 +464,23 @@ namespace GridGameAPI.Database.Migrations
                         .IsRequired();
 
                     b.Navigation("DesignedBy");
+                });
+
+            modelBuilder.Entity("GridGameAPI.Model.PastOpponent", b =>
+                {
+                    b.HasOne("GridGameAPI.Model.Player", "Opponent")
+                        .WithMany()
+                        .HasForeignKey("OpponentId")
+                        .OnDelete(DeleteBehavior.NoAction)
+                        .IsRequired();
+
+                    b.HasOne("GridGameAPI.Model.Player", null)
+                        .WithMany()
+                        .HasForeignKey("PlayerId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Opponent");
                 });
 
             modelBuilder.Entity("GridGameAPI.Model.Player", b =>

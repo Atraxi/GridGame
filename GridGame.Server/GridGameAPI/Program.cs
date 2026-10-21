@@ -19,8 +19,14 @@ builder.Services.Configure<JwtSettings>(
     builder.Configuration.GetSection("Jwt")
     );
 
+//The free serverless database pauses itself after an hour without a query, and while it resumes (up to a minute or
+//so) queries fail with transient errors such as 40613 "database not currently available". Retrying them rides that
+//out instead of failing the request or hub call. The connection string's ConnectRetryCount/Connection Timeout cover
+//opening a connection; this covers the commands sent once it's open. Nothing here starts its own transaction, which
+//a retrying strategy would require wrapping in strategy.ExecuteAsync
 builder.Services.AddDbContext<GameContext>(options =>
-    options.UseSqlServer(builder.Configuration.GetConnectionString("GridGame")));
+    options.UseSqlServer(builder.Configuration.GetConnectionString("GridGame"), sqlServer =>
+        sqlServer.EnableRetryOnFailure(maxRetryCount: 8, maxRetryDelay: TimeSpan.FromSeconds(20), errorNumbersToAdd: null)));
 
 builder.Services.AddIdentity<Player, IdentityRole>(options =>
 {

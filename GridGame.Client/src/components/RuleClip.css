@@ -1,0 +1,44 @@
+.rule-clip {
+	padding: 4px 12px 14px;
+	border: 1px solid var(--border);
+	border-radius: 14px;
+	background: var(--code-bg);
+}
+
+/* Every clip comes out roughly the same size whatever its board, and never wider than its box */
+.rule-clip .board {
+	--board-tile-size: min(44px, calc(320px / var(--columns)), calc((100cqi - 2 * var(--board-padding)) / var(--columns)));
+	margin: 14px auto;
+}
+
+.rule-clip .tile {
+	cursor: default;
+}
+
+.rule-clip__caption {
+	min-height: 3em;
+	font-size: 15px;
+	color: var(--text-h);
+	text-align: center;
+	text-wrap: pretty;
+}
+
+.rule-clip__controls {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	flex-wrap: wrap;
+	gap: 8px 12px;
+	margin-top: 10px;
+	font-size: 14px;
+}
+
+.rule-clip__controls button {
+	font-size: 14px;
+	padding: 4px 12px;
+}
+
+.rule-clip__step {
+	min-width: 6.5em;
+	text-align: center;
+}

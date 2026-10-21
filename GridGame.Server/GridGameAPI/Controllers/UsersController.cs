@@ -1,10 +1,13 @@
 using GridGameAPI.Configuration;
+using GridGameAPI.Database;
 using GridGameAPI.Model;
 using GridGameAPI.UtilityInfrastructure;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
+using System.Security.Claims;
 
 namespace GridGameAPI.Controllers
 {
@@ -15,6 +18,7 @@ namespace GridGameAPI.Controllers
         JwtManager _jwtManager,
         RefreshTokenManager _refreshTokenManager,
         GuestCleanup _guestCleanup,
+        GameContext _context,
         IOptions<JwtSettings> _jwtSettings) : ControllerBase
     {
         private DateTime AccessTokenExpiry => DateTime.UtcNow.AddMinutes(_jwtSettings.Value.AccessTokenExpiryMinutes);
@@ -124,6 +128,34 @@ namespace GridGameAPI.Controllers
                 player.GamesWon,
                 player.GamesLost,
             });
+        }
+
+        /// <summary>Named accounts this player has played a game with, most recent first - the people an invite-only
+        /// game can be opened to (see GamesController.CreateFromMap)</summary>
+        [Authorize(Policy = AuthPolicy.NamedAccountOnly)]
+        [HttpGet]
+        public async Task<ActionResult> Opponents()
+        {
+            var playerId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+            var opponents = await _context.PastOpponents
+                .Where(record => record.PlayerId == playerId)
+                .OrderByDescending(record => record.LastPlayedAt)
+                .Select(record => new { id = record.OpponentId, userName = record.Opponent!.UserName, record.LastPlayedAt })
+                .ToListAsync();
+            return Ok(opponents);
+        }
+
+        /// <summary>Takes someone off this player's own past-opponents list. They aren't told, stay on their own list
+        /// as they were, and are added back if the two play together again</summary>
+        [Authorize(Policy = AuthPolicy.NamedAccountOnly)]
+        [HttpPost]
+        public async Task<ActionResult> RemoveOpponent(RemoveOpponentModel model)
+        {
+            var playerId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+            await _context.PastOpponents
+                .Where(record => record.PlayerId == playerId && record.OpponentId == model.OpponentId)
+                .ExecuteDeleteAsync();
+            return NoContent();
         }
     }
 }

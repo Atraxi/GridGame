@@ -1,5 +1,6 @@
 import { useSyncExternalStore } from 'react'
 import { GUEST_USER_NAME_PREFIX } from './model/Player'
+import { fetchWhileWaking, ServerUnavailableError } from './serverWake'
 
 const TOKEN_KEY = 'gridgame.token'
 const REFRESH_TOKEN_KEY = 'gridgame.refreshToken'
@@ -79,22 +80,29 @@ function isExpired(token: string): boolean {
 }
 
 /** Trades the stored refresh token for a new access+refresh pair. Works the same for guest and named accounts -
- * refresh tokens don't care which, only Promote/Login (which need actual credentials) do */
+ * refresh tokens don't care which, only Promote/Login (which need actual credentials) do.
+ *
+ * False only when the server has actually turned the refresh token down. A server that can't be reached - asleep after
+ * the site sat idle, typically, which is exactly when an access token has had time to expire - throws instead. Treating
+ * that as a rejection would log a named account out, or swap a guest (and their seats) for a brand new one */
 async function tryRefresh(): Promise<boolean> {
 	const refreshToken = localStorage.getItem(REFRESH_TOKEN_KEY)
 	if (!refreshToken) {
 		return false
 	}
-	try {
-		await storeAuth(await fetch('/Users/Refresh', {
-			method: 'POST',
-			headers: { 'Content-Type': 'application/json' },
-			body: JSON.stringify({ refreshToken }),
-		}))
-		return true
-	} catch {
+	const response = await fetchWhileWaking('/Users/Refresh', {
+		method: 'POST',
+		headers: { 'Content-Type': 'application/json' },
+		body: JSON.stringify({ refreshToken }),
+	})
+	if (response.status === 400 || response.status === 401) {
 		return false
 	}
+	if (!response.ok) {
+		throw new ServerUnavailableError()
+	}
+	await storeAuth(response)
+	return true
 }
 
 async function acquireToken(staleToken: string | null): Promise<string> {
@@ -112,7 +120,7 @@ async function acquireToken(staleToken: string | null): Promise<string> {
 			throw new SessionExpiredError()
 		}
 		//No token yet, or a guest with no usable refresh token left - either way a fresh anonymous guest is the only option
-		await storeAuth(await fetch('/Users/GuestAuth', { method: 'POST' }))
+		await storeAuth(await fetchWhileWaking('/Users/GuestAuth', { method: 'POST' }))
 	}
 	return localStorage.getItem(TOKEN_KEY)!
 }
@@ -143,7 +151,7 @@ export async function ensureToken(): Promise<string> {
 }
 
 export const authorizedFetch = async (url: string, init?: RequestInit) => {
-	const request = async () => fetch(url, {
+	const request = async () => fetchWhileWaking(url, {
 		...init,
 		headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${await ensureToken()}`, ...init?.headers },
 	})

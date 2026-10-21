@@ -4,17 +4,17 @@ Follow-ups deliberately left out of the sync / auth / end-game work, roughly in 
 
 ## Bugs found along the way
 
-- **Seats are assigned by join order and only held in memory.** `GameSession.PlayerNumbers` is rebuilt from
-  scratch whenever a session is loaded from the database. Once every connection to a game has dropped, whoever opens it
-  first next time becomes player 1, whoever held that seat before. Seat ownership (user id → player number) needs
-  persisting per game, e.g. a `GameSeat` table. `GridGame.Players` / the `AspNetUsers.GridGameId` shadow FK doesn't fit:
-  it limits a user to one game.
-- **`GamesPlayed` / `GamesWon` / `GamesLost` are never updated.** This depends on persisted seats (above). With seats
-  in place, `EndGame` in `GridGameHub` can use `GetFinalScores`' winner rule: the highest score among players who
-  didn't resign.
-- **Progress is persisted once per completed round.** `ApplyMove` only saves to the database when a full round
-  completes, or when the last connection leaves. If the free App Service plan unloads or restarts the app mid-round,
-  moves since the last save are lost. Consider saving on every turn end; it's a single-row update.
+- **Unlocked seats are still assigned by join order and only held in memory.** A named player can now lock their
+  seat (`GameSeat`, via the "Lock my seat" button), and locked seats survive the session being reloaded. An unlocked
+  seat is still lost once every connection drops: whoever opens the game first next time takes the lowest free seat.
+  Consider auto-locking a named player's seat on their first move. Guests can't lock, since a guest account can sit
+  unused for up to the refresh-token lifetime before `GuestCleanup` frees it.
+- **`GamesPlayed` / `GamesWon` / `GamesLost` are never updated.** This depends on persisted seats (above). Locked
+  seats now give a user id -> player number mapping for named players. With that, `EndGame` in `GridGameHub` can use
+  `GetFinalScores`' winner rule: the highest score among players who didn't resign.
+- **Progress is persisted once per turn.** `ApplyMove` saves at the end of every turn (and the hub saves when the last
+  connection leaves), so an app unload or restart loses at most the turn in progress. Saving every action would close
+  that too, at the cost of a database write per action.
 
 ## End-game analysis (BoardAnalysis)
 

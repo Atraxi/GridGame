@@ -1,5 +1,5 @@
 .map-editor {
-	max-width: 720px;
+	max-width: 960px;
 	margin: 24px auto;
 	padding: 0 20px;
 	text-align: left;
@@ -22,6 +22,8 @@
 
 .map-editor__field input {
 	font: inherit;
+	/* Below 16px, iOS zooms the page in on focus */
+	font-size: 16px;
 	padding: 8px 10px;
 	border: 1px solid var(--border);
 	border-radius: 6px;
@@ -37,6 +39,7 @@
 
 .map-editor__field--name input {
 	width: 100%;
+	box-sizing: border-box;
 }
 
 .map-editor__error {
@@ -68,6 +71,19 @@
 	.map-editor__workspace {
 		--dead: #33343f;
 	}
+}
+
+.map-editor__workspace .board-frame {
+	flex: 1 1 320px;
+	min-width: 0;
+}
+
+/* Every drag on the board paints, so the browser mustn't take it as a scroll or zoom. Tiles go smaller than in play
+   (where every tap is a move) so that the largest maps still fit across a phone */
+.map-editor__workspace .board {
+	--board-min-tile: 10px;
+	touch-action: none;
+	margin-top: 0;
 }
 
 .map-editor__palette {
@@ -106,6 +122,12 @@
 	pointer-events: none;
 }
 
+/* On the board, empty ground is just a gap in the grid - as a swatch on its own it needs an outline to be seen at all */
+.map-editor__swatch .tile--unclaimed {
+	box-shadow: inset 0 0 0 1px var(--text);
+	border-radius: 4px;
+}
+
 .map-editor__note {
 	margin-bottom: 12px;
 	font-style: italic;
@@ -122,4 +144,17 @@
 .map-editor__status {
 	font-size: 14px;
 	color: var(--text);
+}
+
+@media (max-width: 640px) {
+	.map-editor {
+		padding: 0 12px;
+	}
+
+	/* Side by side with the board on a phone, the palette would squeeze it - as a row underneath, it doesn't */
+	.map-editor__palette {
+		flex: 1 1 100%;
+		flex-direction: row;
+		flex-wrap: wrap;
+	}
 }

@@ -44,6 +44,8 @@
 
 .auth-page__field input {
 	font: inherit;
+	/* Below 16px, iOS zooms the page in on focus */
+	font-size: 16px;
 	padding: 8px 10px;
 	border: 1px solid var(--border);
 	border-radius: 6px;

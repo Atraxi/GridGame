@@ -9,6 +9,10 @@
 }
 
 .dialog {
+	/* A long list of invitees scrolls inside the dialog rather than pushing its buttons off a phone screen */
+	max-height: calc(100svh - 32px);
+	overflow-y: auto;
+	box-sizing: border-box;
 	background: var(--bg);
 	border: 1px solid var(--border);
 	border-radius: 10px;
@@ -35,6 +39,8 @@
 .dialog__field input,
 .dialog__field select {
 	font: inherit;
+	/* Below 16px, iOS zooms the page in on focus */
+	font-size: 16px;
 	padding: 8px 10px;
 	border: 1px solid var(--border);
 	border-radius: 6px;
@@ -45,6 +51,37 @@
 .dialog__hint {
 	font-size: 14px;
 	margin: -6px 0 14px;
+}
+
+.dialog__fieldset {
+	border: 1px solid var(--border);
+	border-radius: 6px;
+	margin: 0 0 14px;
+	padding: 8px 12px 4px;
+	font-size: 14px;
+}
+
+.dialog__fieldset legend {
+	padding: 0 4px;
+}
+
+.dialog__fieldset .dialog__hint {
+	margin: 4px 0 8px;
+}
+
+.dialog__choice {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	min-height: 32px;
+	color: var(--text-h);
+	overflow-wrap: anywhere;
+}
+
+.dialog__invitees {
+	max-height: 180px;
+	overflow-y: auto;
+	margin: 4px 0 4px 24px;
 }
 
 .dialog__actions {

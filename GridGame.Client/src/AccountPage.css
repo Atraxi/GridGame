@@ -47,6 +47,52 @@
 	background: var(--accent-bg);
 }
 
+.account-page h2 {
+	margin-top: 28px;
+}
+
+.account-page__hint {
+	font-size: 15px;
+	margin-bottom: 8px;
+}
+
+.account-page__opponents {
+	list-style: none;
+	padding: 0;
+	margin: 0;
+}
+
+.account-page__opponents li {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 12px;
+	padding: 6px 0;
+	border-bottom: 1px solid var(--border);
+}
+
+.account-page__opponent-name {
+	display: flex;
+	flex-direction: column;
+	min-width: 0;
+	overflow-wrap: anywhere;
+	color: var(--text-h);
+}
+
+.account-page__meta {
+	font-size: 13px;
+	color: var(--text);
+}
+
+.account-page__opponents button {
+	flex-shrink: 0;
+}
+
+.account-page__error {
+	margin-top: 8px;
+	color: #d8532e;
+}
+
 .account-page__actions {
 	display: flex;
 	flex-wrap: wrap;

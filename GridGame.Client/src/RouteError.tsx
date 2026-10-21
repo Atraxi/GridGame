@@ -1,5 +1,6 @@
 import { isRouteErrorResponse, Link, Navigate, useRouteError } from "react-router"
 import { SessionExpiredError } from "./auth"
+import { ServerUnavailableError } from "./serverWake"
 import { loginRedirectPath } from "./loaders"
 import "./RouteError.css"
 
@@ -14,7 +15,10 @@ export default function RouteError() {
 
 	let title = 'Something went wrong'
 	let detail = "An unexpected error occurred. Trying again usually sorts it out."
-	if (isRouteErrorResponse(error)) {
+	if (error instanceof ServerUnavailableError) {
+		title = "Can't reach the server"
+		detail = error.message
+	} else if (isRouteErrorResponse(error)) {
 		if (error.status === 404) {
 			title = 'Not found'
 			detail = typeof error.data === 'string' && error.data ? error.data : "That page or game doesn't exist."

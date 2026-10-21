@@ -5,4 +5,6 @@ namespace GridGameAPI.Controllers
     public record LoginModel(string UserName, string Password);
 
     public record RefreshModel(string RefreshToken);
+
+    public record RemoveOpponentModel(string OpponentId);
 }

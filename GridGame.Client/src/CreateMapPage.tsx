@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type CSSProperties } from "react"
+import { useEffect, useRef, useState, type CSSProperties, type PointerEvent } from "react"
 import { Link, useBlocker, useLoaderData, useLocation, useNavigate } from "react-router"
 import Tile, { UNCLAIMED, DEAD } from "./components/game_board/Tile"
 import "./components/game_board/Board.css"
@@ -78,8 +78,11 @@ function CreateMapPage() {
 	const [notice, setNotice] = useState<string | null>((location.state as { notice?: string } | null)?.notice ?? null)
 	const [saving, setSaving] = useState(false)
 	const [selectedTile, setSelectedTile] = useState(1)
-	//A ref, not state - toggled on every pointer move while painting, and doesn't need to trigger a re-render
-	const isPainting = useRef(false)
+	//Refs, not state - read on every pointer move while painting, and don't need to trigger a re-render. The pointer
+	//id keeps a second finger from painting over the first, and the last tile painted saves re-painting it on every
+	//move within it
+	const paintingPointer = useRef<number | null>(null)
+	const lastPainted = useRef<string | null>(null)
 
 	//A blank board counts as unsaved only once something has been changed on it
 	const dirty = snapshotOf({ name, playerCount, actionsPerTurn, board }) !== (savedSnapshot ?? snapshotOf(initial))
@@ -88,11 +91,15 @@ function CreateMapPage() {
 	const dirtyRef = useRef(dirty)
 	useEffect(() => { dirtyRef.current = dirty }, [dirty])
 
-	//Catches a mouseup that happens after the pointer has been dragged off the board entirely
+	//Catches the pointer being released after it has been dragged off the board entirely
 	useEffect(() => {
-		const stopPainting = () => { isPainting.current = false }
-		window.addEventListener('mouseup', stopPainting)
-		return () => window.removeEventListener('mouseup', stopPainting)
+		const stopPainting = () => { paintingPointer.current = null }
+		window.addEventListener('pointerup', stopPainting)
+		window.addEventListener('pointercancel', stopPainting)
+		return () => {
+			window.removeEventListener('pointerup', stopPainting)
+			window.removeEventListener('pointercancel', stopPainting)
+		}
 	}, [])
 
 	//Closing the tab or reloading with unsaved changes gets the browser's own "leave site?" prompt...
@@ -152,14 +159,23 @@ function CreateMapPage() {
 		))
 	}
 
+	//Still wired up for the keyboard: pointers paint on pointerdown, below
 	const onTileClicked = (row: number, column: number) => () => {
 		paintTile(row, column)
 		return undefined
 	}
 
-	const onTileEntered = (row: number, column: number) => () => {
-		if (isPainting.current) {
-			paintTile(row, column)
+	//Hit-tested rather than relying on each tile's own enter events: a touch keeps sending its events to the element
+	//it started on, so a finger dragged across the board would otherwise only ever paint the first tile
+	const paintUnderPointer = (event: PointerEvent<HTMLElement>) => {
+		const tile = document.elementFromPoint(event.clientX, event.clientY)?.closest<HTMLElement>('[data-row]')
+		if (!tile || !event.currentTarget.contains(tile)) {
+			return
+		}
+		const key = `${tile.dataset.row}.${tile.dataset.column}`
+		if (key !== lastPainted.current) {
+			lastPainted.current = key
+			paintTile(Number(tile.dataset.row), Number(tile.dataset.column))
 		}
 	}
 
@@ -247,34 +263,48 @@ function CreateMapPage() {
 				</label>
 			</div>
 
-			<p>Pick a tile type from the palette, then click or drag across the board to paint it.</p>
+			<p>Pick a tile type from the palette, then tap, click or drag across the board to paint it.</p>
 			<p>
 				To publish, every player needs at least one starting tile, and every player must be reachable from every
 				other player's territory. Not finished? Save it as a draft and come back to it from your account page.
 			</p>
 
 			<div className="map-editor__workspace">
-				<div
-					className="board"
-					style={{ '--columns': width } as CSSProperties}
-					onMouseDown={() => { isPainting.current = true }}
-				>
-					{board.map((row, rowIndex) =>
-						row.map((owner, columnIndex) => (
-							<Tile
-								key={`${rowIndex}.${columnIndex}`}
-								owner={owner}
-								edges={{
-									top: ownerAt(rowIndex - 1, columnIndex) !== owner,
-									right: ownerAt(rowIndex, columnIndex + 1) !== owner,
-									bottom: ownerAt(rowIndex + 1, columnIndex) !== owner,
-									left: ownerAt(rowIndex, columnIndex - 1) !== owner,
-								}}
-								onTileClicked={onTileClicked(rowIndex, columnIndex)}
-								onTileEntered={onTileEntered(rowIndex, columnIndex)}
-							/>
-						))
-					)}
+				<div className="board-frame">
+					<div
+						className="board"
+						style={{ '--columns': width } as CSSProperties}
+						onPointerDown={event => {
+							if (event.button !== 0 || paintingPointer.current != null) {
+								return
+							}
+							paintingPointer.current = event.pointerId
+							lastPainted.current = null
+							paintUnderPointer(event)
+						}}
+						onPointerMove={event => {
+							if (paintingPointer.current === event.pointerId) {
+								paintUnderPointer(event)
+							}
+						}}
+					>
+						{board.map((row, rowIndex) =>
+							row.map((owner, columnIndex) => (
+								<Tile
+									key={`${rowIndex}.${columnIndex}`}
+									owner={owner}
+									edges={{
+										top: ownerAt(rowIndex - 1, columnIndex) !== owner,
+										right: ownerAt(rowIndex, columnIndex + 1) !== owner,
+										bottom: ownerAt(rowIndex + 1, columnIndex) !== owner,
+										left: ownerAt(rowIndex, columnIndex - 1) !== owner,
+									}}
+									cell={{ row: rowIndex, column: columnIndex }}
+									onTileClicked={onTileClicked(rowIndex, columnIndex)}
+								/>
+							))
+						)}
+					</div>
 				</div>
 
 				<div className="map-editor__palette">
@@ -285,7 +315,7 @@ function CreateMapPage() {
 							className={`map-editor__swatch${value === selectedTile ? ' map-editor__swatch--selected' : ''}`}
 							onClick={() => setSelectedTile(value)}
 						>
-							<Tile owner={value} edges={{ top: true, right: true, bottom: true, left: true }} onTileClicked={() => undefined} />
+							<Tile owner={value} edges={{ top: true, right: true, bottom: true, left: true }} />
 							{label}
 						</button>
 					))}

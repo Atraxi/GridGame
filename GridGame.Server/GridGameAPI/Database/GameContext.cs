@@ -14,6 +14,12 @@ namespace GridGameAPI.Database
 
         public DbSet<RefreshToken> RefreshTokens { get; set; }
 
+        public DbSet<GameSeat> GameSeats { get; set; }
+
+        public DbSet<GameInvite> GameInvites { get; set; }
+
+        public DbSet<PastOpponent> PastOpponents { get; set; }
+
         protected override void ConfigureConventions(ModelConfigurationBuilder configurationBuilder)
         {
             configurationBuilder
@@ -38,6 +44,47 @@ namespace GridGameAPI.Database
             builder.Entity<RefreshToken>()
                 .HasIndex(refreshToken => refreshToken.TokenHash)
                 .IsUnique();
+
+            //Neither table is reachable by navigation from GridGame: the hub force-saves the whole game entity graph
+            //(see GridGameHub.PersistGame), so seats and invites are written explicitly instead of riding along with it
+            builder.Entity<GameSeat>()
+                .HasKey(seat => new { seat.GridGameId, seat.PlayerNumber });
+            builder.Entity<GameSeat>()
+                .HasIndex(seat => new { seat.GridGameId, seat.PlayerId })
+                .IsUnique();
+            builder.Entity<GameSeat>()
+                .HasOne<GridGame>()
+                .WithMany()
+                .HasForeignKey(seat => seat.GridGameId);
+            builder.Entity<GameSeat>()
+                .HasOne(seat => seat.Player)
+                .WithMany()
+                .HasForeignKey(seat => seat.PlayerId);
+
+            builder.Entity<GameInvite>()
+                .HasKey(invite => new { invite.GridGameId, invite.PlayerId });
+            builder.Entity<GameInvite>()
+                .HasOne(invite => invite.Game)
+                .WithMany()
+                .HasForeignKey(invite => invite.GridGameId);
+            builder.Entity<GameInvite>()
+                .HasOne<Player>()
+                .WithMany()
+                .HasForeignKey(invite => invite.PlayerId);
+
+            builder.Entity<PastOpponent>()
+                .HasKey(record => new { record.PlayerId, record.OpponentId });
+            builder.Entity<PastOpponent>()
+                .HasOne<Player>()
+                .WithMany()
+                .HasForeignKey(record => record.PlayerId);
+            //SQL Server refuses two cascading foreign keys from one table to the same parent ("multiple cascade
+            //paths"), so this side doesn't cascade. Only named accounts are ever recorded, and those are never deleted
+            builder.Entity<PastOpponent>()
+                .HasOne(record => record.Opponent)
+                .WithMany()
+                .HasForeignKey(record => record.OpponentId)
+                .OnDelete(DeleteBehavior.NoAction);
 
             //One JSON column of compact int arrays rather than a row per action: the hub force-saves the whole game
             //entity (see GridGameHub.PersistGame), which keeps the history in step with the board for free, and a

@@ -4,4 +4,5 @@ export type GameSummary = {
 	name: string
 	turnNumber: number
 	isGameOver: boolean
+	isInviteOnly: boolean
 }

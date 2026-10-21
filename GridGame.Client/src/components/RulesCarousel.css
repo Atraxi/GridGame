@@ -1,0 +1,136 @@
+.rules-carousel {
+	max-width: 640px;
+	margin: 0 auto 24px;
+	padding: 0 16px;
+	box-sizing: border-box;
+	width: 100%;
+}
+
+.rules-carousel__track {
+	display: flex;
+	overflow-x: auto;
+	scroll-snap-type: x mandatory;
+	overscroll-behavior-x: contain;
+	scrollbar-width: none;
+	border: 1px solid var(--border);
+	border-radius: 14px;
+	background: var(--code-bg);
+}
+
+.rules-carousel__track::-webkit-scrollbar {
+	display: none;
+}
+
+.rules-carousel__slide {
+	flex: 0 0 100%;
+	min-width: 0;
+	box-sizing: border-box;
+	padding: 16px 12px 14px;
+	scroll-snap-align: start;
+	scroll-snap-stop: always;
+	display: flex;
+	flex-direction: column;
+	align-items: stretch;
+	/* Every slide is as tall as the tallest one, so the shorter ones sit in the middle rather than leaving a gap */
+	justify-content: center;
+}
+
+.rules-carousel__title {
+	margin: 0;
+	font-size: 18px;
+	font-weight: 600;
+	color: var(--text-h);
+}
+
+/* Every picture comes out roughly the same size whatever its board: a 5-wide demo gets big tiles, a 15-wide game
+   small ones, and none of them is wider than the slide */
+.rules-carousel__slide .board {
+	--board-tile-size: min(44px, calc(360px / var(--columns)), calc((100cqi - 2 * var(--board-padding)) / var(--columns)));
+	margin: 14px auto;
+	/* Swipes over the picture should move the carousel, not be treated as taps on the board */
+	touch-action: pan-x pan-y;
+}
+
+/* The pictures are only to look at */
+.rules-carousel__slide .tile {
+	cursor: default;
+}
+
+.rules-carousel__caption {
+	min-height: 3em;
+	font-size: 15px;
+	color: var(--text-h);
+	text-wrap: pretty;
+}
+
+.rules-carousel__nav {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	gap: 12px;
+	margin-top: 10px;
+}
+
+.rules-carousel__nav > button {
+	width: 40px;
+	height: 40px;
+	padding: 0;
+	border-radius: 50%;
+	font-size: 22px;
+	line-height: 1;
+}
+
+.rules-carousel__dots {
+	display: flex;
+	flex-wrap: wrap;
+	justify-content: center;
+}
+
+/* A small visible dot inside a full-size touch target */
+.rules-carousel__dot {
+	width: 28px;
+	height: 28px;
+	min-height: 0;
+	padding: 0;
+	border: 0;
+	background: none;
+	position: relative;
+}
+
+.rules-carousel__dot::after {
+	content: '';
+	position: absolute;
+	inset: 9px;
+	border-radius: 50%;
+	background: var(--border);
+	transition: background-color 150ms ease;
+}
+
+.rules-carousel__dot[aria-current="true"]::after {
+	background: var(--accent);
+}
+
+.rules-carousel__footer {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	justify-content: center;
+	gap: 8px 16px;
+	margin-top: 8px;
+	font-size: 15px;
+}
+
+.rules-carousel__pause {
+	font-size: 14px;
+	padding: 4px 12px;
+}
+
+@media (max-width: 640px) {
+	.rules-carousel {
+		padding: 0 12px;
+	}
+
+	.rules-carousel__slide {
+		padding: 12px 8px;
+	}
+}

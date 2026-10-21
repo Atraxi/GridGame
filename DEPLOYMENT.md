@@ -184,8 +184,14 @@ resource can stay, unused.
 - **No Always On.** After ~20 minutes with no incoming requests the app is unloaded, and the next
   request pays a cold start.
 - **The database auto-pauses after an hour idle.** Resuming takes 30–60 seconds, so the first request
-  after a quiet period is slow. The connection string allows for it, and `Program.cs` retries the
-  startup migration rather than crashing.
+  after a quiet period is slow. The connection string's retries cover opening a connection, EF Core's
+  `EnableRetryOnFailure` (in `Program.cs`) covers queries that hit the resume, and the startup
+  migration is retried rather than crashing.
+- **The client waits for a sleeping app or database.** Requests that fail with 502/503/504 or don't
+  connect at all are retried for up to four minutes behind a "Waking the server up" notice (see
+  `serverWake.ts`). Token renewal never treats an unreachable server as a rejected login, and the
+  game page's live connection keeps reconnecting for up to ten minutes, then again whenever the tab
+  is shown. Games are saved at the end of every turn, so an unload loses at most the turn in progress.
 - **F1 can't bind a custom domain itself** — the Cloudflare proxy in the next section works around it.
 - **Ten free databases per subscription.** If that allowance is already spent, the portal won't offer
   the free banner, and this database would be billed.

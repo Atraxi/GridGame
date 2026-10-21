@@ -7,8 +7,11 @@ import "./Board.css";
 export type JumpChoice = { x: number, y: number, origins: { x: number, y: number }[] }
 export type MarkedCell = { x: number, y: number, mark: HistoryMark }
 
+/** The parts of a BoardAnalysis the territory overlay draws from */
+export type TerritoryMap = Pick<BoardAnalysis, 'insight' | 'claimant'>
+
 /** Only meaningful for unclaimed tiles - owned tiles already show their owner */
-function territoryAt(analysis: BoardAnalysis, row: number, column: number): Territory | undefined {
+function territoryAt(analysis: TerritoryMap, row: number, column: number): Territory | undefined {
 	const player = analysis.claimant[row]?.[column] ?? 0
 	switch (analysis.insight[row]?.[column]) {
 		case CellInsight.UncontestedSecure: return { kind: 'secure', player }
@@ -62,10 +65,11 @@ export default function Board({ board, playerCount, movesFor, opponentsOf, jumpC
 	opponentsOf?: number | null,
 	jumpChoice: JumpChoice | null,
 	/** Shown as a territory overlay on unclaimed tiles when present */
-	analysis?: BoardAnalysis | null,
-	/** Tiles to pick out while stepping through the move history */
+	analysis?: TerritoryMap | null,
+	/** Tiles to pick out: while stepping through the move history, or a move waiting to be confirmed */
 	historyMarks?: MarkedCell[],
-	onTileClicked: (x: number, y: number) => () => unknown
+	/** Leave out for a board that's only a picture - its tiles then aren't buttons */
+	onTileClicked?: (x: number, y: number) => () => unknown
 }) {
 	const ownerAt = (row: number, column: number) => board[row]?.[column] ?? UNCLAIMED
 	const opponentGrid = useMemo(
@@ -73,40 +77,43 @@ export default function Board({ board, playerCount, movesFor, opponentsOf, jumpC
 		[board, opponentsOf, playerCount])
 
 	return (
-		<div
-			className={`board${jumpChoice ? ' board--choosing' : ''}`}
-			style={{ '--columns': board[0].length } as CSSProperties}
-		>
-			{board.map((row, rowIndex) =>
-				row.map((owner, columnIndex) => {
-					const isJumpOrigin = jumpChoice?.origins.some(origin => origin.x === rowIndex && origin.y === columnIndex) ?? false
-					const isJumpLanding = jumpChoice != null && jumpChoice.x === rowIndex && jumpChoice.y === columnIndex
-					const moveHint = isJumpOrigin ? 'jump-origin'
-						: isJumpLanding ? 'jump-landing'
-						: movesFor == null || jumpChoice ? undefined
-						: moveHintFor(board, movesFor, rowIndex, columnIndex)
-
-					return (
-						<Tile
-							key={`${rowIndex}.${columnIndex}`}
-							owner={owner}
-							//A blob is outlined only where it meets a different owner, so each tile contributes just its own share of that boundary
-							edges={{
-								top: ownerAt(rowIndex - 1, columnIndex) !== owner,
-								right: ownerAt(rowIndex, columnIndex + 1) !== owner,
-								bottom: ownerAt(rowIndex + 1, columnIndex) !== owner,
-								left: ownerAt(rowIndex, columnIndex - 1) !== owner,
-							}}
-							moveHint={moveHint}
-							territory={analysis ? territoryAt(analysis, rowIndex, columnIndex) : undefined}
-							opponentMove={jumpChoice ? undefined : opponentGrid?.[rowIndex][columnIndex]}
-							historyMark={historyMarks?.find(cell => cell.x === rowIndex && cell.y === columnIndex)?.mark}
-							onTileClicked={onTileClicked(rowIndex, columnIndex)}
-						/>
-					)
-				})
-			)}
-			{jumpChoice && <JumpArrows choice={jumpChoice} rows={board.length} columns={board[0].length} />}
+		//The frame is what the tile size is worked out against (see Board.css), and scrolls a board too wide to fit
+		<div className="board-frame">
+			<div
+				className={`board${jumpChoice ? ' board--choosing' : ''}`}
+				style={{ '--columns': board[0].length } as CSSProperties}
+			>
+				{board.map((row, rowIndex) =>
+					row.map((owner, columnIndex) => {
+						const isJumpOrigin = jumpChoice?.origins.some(origin => origin.x === rowIndex && origin.y === columnIndex) ?? false
+						const isJumpLanding = jumpChoice != null && jumpChoice.x === rowIndex && jumpChoice.y === columnIndex
+						const moveHint = isJumpOrigin ? 'jump-origin'
+							: isJumpLanding ? 'jump-landing'
+							: movesFor == null || jumpChoice ? undefined
+							: moveHintFor(board, movesFor, rowIndex, columnIndex)
+	
+						return (
+							<Tile
+								key={`${rowIndex}.${columnIndex}`}
+								owner={owner}
+								//A blob is outlined only where it meets a different owner, so each tile contributes just its own share of that boundary
+								edges={{
+									top: ownerAt(rowIndex - 1, columnIndex) !== owner,
+									right: ownerAt(rowIndex, columnIndex + 1) !== owner,
+									bottom: ownerAt(rowIndex + 1, columnIndex) !== owner,
+									left: ownerAt(rowIndex, columnIndex - 1) !== owner,
+								}}
+								moveHint={moveHint}
+								territory={analysis ? territoryAt(analysis, rowIndex, columnIndex) : undefined}
+								opponentMove={jumpChoice ? undefined : opponentGrid?.[rowIndex][columnIndex]}
+								historyMark={historyMarks?.find(cell => cell.x === rowIndex && cell.y === columnIndex)?.mark}
+								onTileClicked={onTileClicked?.(rowIndex, columnIndex)}
+							/>
+						)
+					})
+				)}
+				{jumpChoice && <JumpArrows choice={jumpChoice} rows={board.length} columns={board[0].length} />}
+			</div>
 		</div>
 	)
 }

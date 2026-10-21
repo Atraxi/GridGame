@@ -44,6 +44,18 @@
 	}
 }
 
+.game-list__badge {
+	display: inline-block;
+	margin-left: 8px;
+	padding: 0 6px;
+	border-radius: 4px;
+	font-size: 12px;
+	white-space: nowrap;
+	vertical-align: middle;
+	color: var(--accent);
+	background: var(--accent-bg);
+}
+
 .game-list__pages {
 	display: flex;
 	justify-content: center;

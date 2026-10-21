@@ -19,8 +19,10 @@ namespace GridGameAPI.ActiveGames.SignalRHubs
     /// the other players.
     /// </summary>
     [Authorize(Policy = AuthPolicy.AnyUser)]
-    public class GridGameHub(GameSessionManager _sessionManager, GameContext _gameContext, GameListVersion _listVersion) : Hub
+    public class GridGameHub(GameSessionManager _sessionManager, GameContext _gameContext, GameListVersion _listVersion, ILogger<GridGameHub> _logger) : Hub
     {
+        private bool IsNamedAccount => Context.User?.FindFirst(Constants.AccountTypeClaim)?.Value == Constants.NamedAccountType;
+
         /// <returns>The player number the caller owns tiles as, or 0 if the game's seats are already full and they're only spectating</returns>
         public async Task<int> OnConnectedToGame(int gameId)
         {
@@ -31,26 +33,46 @@ namespace GridGameAPI.ActiveGames.SignalRHubs
                     var game = _gameContext.GridGames
                         .AsNoTracking()
                         .Single(game => game.Id == gameId);
-                    return new GameSession
+                    var lockedSeats = _gameContext.GameSeats
+                        .Where(seat => seat.GridGameId == gameId)
+                        .Select(seat => new { seat.PlayerNumber, seat.PlayerId, seat.Player!.UserName })
+                        .ToList();
+                    var session = new GameSession
                     {
                         GridGame = game,
                         StateHash = StateHash.Compute(game),
                         Analysis = BoardAnalysis.Compute(game.GameBoard, game.PlayerCount),
+                        InvitedUserIds = game.IsInviteOnly
+                            ? _gameContext.GameInvites.Where(invite => invite.GridGameId == gameId).Select(invite => invite.PlayerId).ToHashSet()
+                            : null,
                     };
+                    //Only named accounts can lock a seat, so every lock holder is one. Anyone who already moved from
+                    //their seat counts as having played, so an opponent's first move after a reload still records them
+                    var movedPlayers = game.MoveLog.Select(action => action.Player).ToHashSet();
+                    foreach (var seat in lockedSeats)
+                    {
+                        session.PlayerNumbers[seat.PlayerId] = seat.PlayerNumber;
+                        session.LockedSeats[seat.PlayerId] = 0;
+                        session.UserNames[seat.PlayerId] = seat.UserName ?? "";
+                        session.NamedUsers[seat.PlayerId] = 0;
+                        if (movedPlayers.Contains(seat.PlayerNumber))
+                        {
+                            session.ActiveNamedUsers.Add(seat.PlayerId);
+                        }
+                    }
+                    return session;
                 },
                 session =>
                 {
                     session.Connections[Context.ConnectionId] = userId;
-                    if (Context.User?.FindFirst(Constants.AccountTypeClaim)?.Value == Constants.NamedAccountType)
+                    session.SeenUsers[userId] = 0;
+                    if (IsNamedAccount)
                     {
                         session.NamedAccountConnections[Context.ConnectionId] = 0;
+                        session.NamedUsers[userId] = 0;
                     }
                     session.UserNames[userId] = Context.User?.FindFirst(ClaimTypes.Name)?.Value ?? "";
-                    if (!session.PlayerNumbers.ContainsKey(userId) &&
-                        session.PlayerNumbers.Count < session.GridGame.PlayerCount)
-                    {
-                        session.PlayerNumbers[userId] = session.PlayerNumbers.Count + 1;
-                    }
+                    session.TryTakeSeat(userId);
                     //A fresh connection always pulls a snapshot (see the client's resync), so whatever they missed
                     //while unresponsive no longer matters
                     session.UnresponsiveUsers.TryRemove(userId, out _);
@@ -281,9 +303,10 @@ namespace GridGameAPI.ActiveGames.SignalRHubs
                 var previousStateHash = session.StateHash;
                 game.MoveLog.Add(GameAction.Resignation(game.TurnNumber, player));
                 game.ResignedPlayerNumber = player;
-                await EndGame(session);
+                EndGame(session);
                 _listVersion.Bump();
                 await BroadcastStateChange(session, [], previousStateHash, requiresAck: true);
+                await PersistGame(game);
             }
             finally
             {
@@ -317,9 +340,11 @@ namespace GridGameAPI.ActiveGames.SignalRHubs
 
         /// <summary>Writes the given (x, y, newTileValue) tuples to the board - either [landing] for a spawn, or
         /// [origin, landing] for a jump - and records the action in the move history. Then advances the turn (skipping past any
-        /// player with no legal move left, e.g. eliminated or walled in), checks for game-over, persists to the DB
-        /// once per completed round (rather than every move - the in-memory session is otherwise the sole source of
-        /// truth while a game is live), and broadcasts all of it. Callers (RequestMove/ConfirmJump) already hold
+        /// player with no legal move left, e.g. eliminated or walled in), checks for game-over, broadcasts all of it,
+        /// and persists to the DB at the end of every turn. The in-memory session is otherwise the sole source of truth
+        /// while a game is live, and the free App Service plan can unload the app whenever it's had no incoming requests
+        /// for a while - which a game whose players have wandered off won't send - so anything unsaved could be lost
+        /// with it. At most the turn in progress is now. Callers (RequestMove/ConfirmJump) already hold
         /// session.MoveLock for their whole validate-and-apply body, so this doesn't acquire it itself -
         /// SemaphoreSlim isn't reentrant, so doing both would deadlock</summary>
         private async Task ApplyMove(GameSession session, (int X, int Y, int NewValue)[] updates)
@@ -351,25 +376,15 @@ namespace GridGameAPI.ActiveGames.SignalRHubs
 
             if (GameEndAnalysis.IsGameOver(game.GameBoard, game.PlayerCount))
             {
-                await EndGame(session);
+                EndGame(session);
             }
             else if (game.ActionsRemainingInTurn <= 0)
             {
                 var nextPlayer = game.CurrentPlayerNumber;
                 var foundMover = false;
-                //True once the search below has wrapped past the last player back to the first, i.e. a full
-                //round has completed - tracked by candidate value rather than "landed on player 1", since a
-                //player skipped for having no legal move (eliminated, walled in) might mean nobody ever lands
-                //on exactly 1 again
-                var completedRound = false;
                 for (var attempt = 0; attempt < game.PlayerCount; attempt++)
                 {
-                    var candidate = nextPlayer % game.PlayerCount + 1;
-                    if (candidate < nextPlayer)
-                    {
-                        completedRound = true;
-                    }
-                    nextPlayer = candidate;
+                    nextPlayer = nextPlayer % game.PlayerCount + 1;
                     if (GridGameMoves.HasAnyLegalMove(game.GameBoard, nextPlayer))
                     {
                         foundMover = true;
@@ -382,17 +397,12 @@ namespace GridGameAPI.ActiveGames.SignalRHubs
                     game.CurrentPlayerNumber = nextPlayer;
                     game.ActionsRemainingInTurn = game.ActionsPerTurn;
                     game.TurnNumber++;
-
-                    if (completedRound)
-                    {
-                        await PersistGame(game);
-                    }
                 }
                 else
                 {
                     //Contradicts IsGameOver being false above (a player in contact with another always has at
                     //least one legal move) - treated as game over defensively rather than stalling regardless
-                    await EndGame(session);
+                    EndGame(session);
                 }
             }
 
@@ -403,6 +413,88 @@ namespace GridGameAPI.ActiveGames.SignalRHubs
                 _listVersion.Bump();
             }
             await BroadcastStateChange(session, updates, previousStateHash, requiresAck: turnEnded);
+            //Database work comes after the broadcast, so it never delays anyone seeing the move - which matters most
+            //when the database has paused itself and takes the better part of a minute to answer
+            if (turnEnded)
+            {
+                await PersistGame(game);
+            }
+            await RecordOpponents(session);
+        }
+
+        /// <summary>Adds the caller and every other named account that has moved in this game to each other's
+        /// past-opponents lists, the first time the caller moves in this session. Recorded on moves rather than on
+        /// taking a seat, because merely opening a game with a free seat takes one. Called under MoveLock</summary>
+        private async Task RecordOpponents(GameSession session)
+        {
+            var userId = Context.UserIdentifier!;
+            if (!session.NamedUsers.ContainsKey(userId) || !session.ActiveNamedUsers.Add(userId))
+            {
+                return;
+            }
+            var others = session.ActiveNamedUsers.Where(other => other != userId).ToList();
+            if (others.Count == 0)
+            {
+                return;
+            }
+
+            try
+            {
+                var existing = await _gameContext.PastOpponents
+                    .Where(record => (record.PlayerId == userId && others.Contains(record.OpponentId)) ||
+                                     (record.OpponentId == userId && others.Contains(record.PlayerId)))
+                    .ToListAsync();
+                var now = DateTime.UtcNow;
+                foreach (var (playerId, opponentId) in others.SelectMany(other => new[] { (userId, other), (other, userId) }))
+                {
+                    var record = existing.FirstOrDefault(r => r.PlayerId == playerId && r.OpponentId == opponentId);
+                    if (record is null)
+                    {
+                        _gameContext.PastOpponents.Add(new PastOpponent { PlayerId = playerId, OpponentId = opponentId, LastPlayedAt = now });
+                    }
+                    else
+                    {
+                        record.LastPlayedAt = now;
+                    }
+                }
+                await _gameContext.SaveChangesAsync();
+            }
+            catch (DbUpdateException exception)
+            {
+                //A nice-to-have: the same pair being recorded by two games at once, say, mustn't fail the move itself.
+                //Whatever didn't stick is recorded on their next game together
+                _logger.LogWarning(exception, "Couldn't record past opponents for game {GameId}", session.GridGame.Id);
+            }
+        }
+
+        /// <summary>Ties the caller's seat to their account for good: from now on it's theirs whenever the game is
+        /// reopened, and nobody else can be given it. Named accounts only, see GameSeat</summary>
+        public async Task LockSeat()
+        {
+            var session = _sessionManager.GetByConnectionId(Context.ConnectionId);
+            var userId = Context.UserIdentifier!;
+            if (session is null || !IsNamedAccount || session.GridGame.IsGameOver ||
+                !session.PlayerNumbers.TryGetValue(userId, out var playerNumber) || session.LockedSeats.ContainsKey(userId))
+            {
+                return;
+            }
+
+            try
+            {
+                _gameContext.GameSeats.Add(new GameSeat { GridGameId = session.GridGame.Id, PlayerNumber = playerNumber, PlayerId = userId });
+                await _gameContext.SaveChangesAsync();
+            }
+            catch (DbUpdateException)
+            {
+                //Already locked - e.g. a second tab asked at the same moment. Either way the seat is now theirs, unless
+                //the row says otherwise, in which case it's left alone
+                if (!await _gameContext.GameSeats.AnyAsync(seat => seat.GridGameId == session.GridGame.Id && seat.PlayerId == userId && seat.PlayerNumber == playerNumber))
+                {
+                    throw;
+                }
+            }
+            session.LockedSeats[userId] = 0;
+            await BroadcastPresence(session);
         }
 
         /// <summary>Pushes a state change to everyone in the game, and the refreshed board analysis to named accounts.
@@ -448,15 +540,14 @@ namespace GridGameAPI.ActiveGames.SignalRHubs
         private Task BroadcastPresence(GameSession session) =>
             Clients.Clients(session.Connections.Keys.ToList()).SendAsync("presenceUpdated", session.Presence());
 
-        /// <summary>Marks the game over, computes the final score, and persists both immediately rather than waiting
-        /// for the last connection to drop</summary>
-        private async Task EndGame(GameSession session)
+        /// <summary>Marks the game over and computes the final score. The caller persists it once it has broadcast the
+        /// result, rather than waiting for the last connection to drop</summary>
+        private static void EndGame(GameSession session)
         {
             var game = session.GridGame;
             game.IsGameOver = true;
             session.Analysis ??= BoardAnalysis.Compute(game.GameBoard, game.PlayerCount);
             game.FinalScores = session.Analysis.Players.Select(player => player.Projected).ToArray();
-            await PersistGame(game);
         }
 
         /// <summary>Force-saves the whole entity - the in-memory session, not EF change tracking, is the source of

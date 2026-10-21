@@ -42,6 +42,7 @@ namespace GridGameAPI.Controllers
                     CreationDate = game.CreationDate,
                     TurnNumber = game.TurnNumber,
                     IsGameOver = game.IsGameOver,
+                    IsInviteOnly = game.IsInviteOnly,
                 })
                 .ToListAsync();
 
@@ -159,6 +160,21 @@ namespace GridGameAPI.Controllers
                 return BadRequest("Publish this map before hosting a game from it.");
             }
 
+            //Only people already in the host's past-opponents list can be invited - the list is what the client offers,
+            //and it keeps hosts from enumerating arbitrary account ids
+            var hostId = User.FindFirstValue(ClaimTypes.NameIdentifier)!;
+            var invitedIds = (request.InvitedPlayerIds ?? []).Where(id => id != hostId).Distinct().ToList();
+            if (invitedIds.Count > 0)
+            {
+                var known = await _context.PastOpponents
+                    .Where(record => record.PlayerId == hostId && invitedIds.Contains(record.OpponentId))
+                    .CountAsync();
+                if (known != invitedIds.Count)
+                {
+                    return BadRequest("Only players you've played with before can be invited.");
+                }
+            }
+
             var newGame = new GridGame
             {
                 CreationDate = DateTime.Now,
@@ -171,9 +187,15 @@ namespace GridGameAPI.Controllers
                 Players = [],
                 //Cloned so that playing the game can never mutate the map's own saved template
                 GameBoard = (int[,])map.StartingBoard.Clone(),
+                IsInviteOnly = invitedIds.Count > 0,
             };
 
             _context.GridGames.Add(newGame);
+            if (newGame.IsInviteOnly)
+            {
+                //The host is on the list too, or they couldn't sit in their own game
+                _context.GameInvites.AddRange(invitedIds.Append(hostId).Select(id => new GameInvite { Game = newGame, PlayerId = id }));
+            }
             await _context.SaveChangesAsync();
             _listVersion.Bump();
             return newGame.Id;

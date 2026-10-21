@@ -9,7 +9,9 @@ import MapEditorRoute from './CreateMapPage.tsx'
 import { createBrowserRouter, RouterProvider } from 'react-router';
 import GridGamePage from './GridGame.tsx';
 import { loadJson, loadMapToEdit, loadNewMap } from './loaders.ts';
+import { isGuest } from './auth.ts';
 import RouteError from './RouteError.tsx';
+import HelpPage from './HelpPage.tsx';
 
 const router = createBrowserRouter([
   {
@@ -34,14 +36,20 @@ const router = createBrowserRouter([
             Component: LoginPage,
           },
           {
+            path: "help",
+            Component: HelpPage,
+          },
+          {
             path: "account",
             Component: AccountPage,
             loader: async () => {
-              const [profile, maps] = await Promise.all([
+              //Past opponents are a named-account feature - asking as a guest would just be refused
+              const [profile, maps, opponents] = await Promise.all([
                 loadJson('/Users/Me'),
                 loadJson('/Maps/GetMine'),
+                isGuest() ? [] : loadJson('/Users/Opponents'),
               ])
-              return { profile, maps }
+              return { profile, maps, opponents }
             },
           },
           {
