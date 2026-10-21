@@ -18,6 +18,8 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.Configure<JwtSettings>(
     builder.Configuration.GetSection("Jwt")
     );
+builder.Services.Configure<EmailSettings>(builder.Configuration.GetSection("Email"));
+builder.Services.Configure<AppSettings>(builder.Configuration.GetSection("App"));
 
 //The free serverless database pauses itself after an hour without a query, and while it resumes (up to a minute or
 //so) queries fail with transient errors such as 40613 "database not currently available". Retrying them rides that
@@ -41,6 +43,8 @@ builder.Services.AddSingleton<GameSessionManager>();
 builder.Services.AddSingleton<GameListVersion>();
 builder.Services.AddScoped<JwtManager>();
 builder.Services.AddScoped<RefreshTokenManager>();
+builder.Services.AddScoped<PasswordResetManager>();
+builder.Services.AddSingleton<EmailSender>();
 builder.Services.AddSingleton<GuestCleanup>();
 builder.Services.AddHostedService<SessionMonitor>();
 

@@ -74,6 +74,7 @@ export default function LoginPage() {
 				<button type="submit">{mode === 'create' ? 'Create account' : 'Log in'}</button>
 			</form>
 			{error && <p className="auth-page__error">{error}</p>}
+			{mode === 'login' && <p className="auth-page__aside"><Link to="/forgot-password">Forgot your password?</Link></p>}
 		</section>
 	)
 }

@@ -92,6 +92,9 @@ namespace GridGameAPI.Database.Migrations
                     b.Property<bool>("IsInviteOnly")
                         .HasColumnType("bit");
 
+                    b.Property<int?>("MapId")
+                        .HasColumnType("int");
+
                     b.Property<string>("MoveLog")
                         .IsRequired()
                         .HasColumnType("nvarchar(max)");
@@ -103,6 +106,9 @@ namespace GridGameAPI.Database.Migrations
                     b.Property<int>("PlayerCount")
                         .HasColumnType("int");
 
+                    b.Property<int?>("RematchGameId")
+                        .HasColumnType("int");
+
                     b.Property<int?>("ResignedPlayerNumber")
                         .HasColumnType("int");
 
@@ -110,6 +116,8 @@ namespace GridGameAPI.Database.Migrations
                         .HasColumnType("int");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("MapId");
 
                     b.ToTable("GridGames");
                 });
@@ -151,6 +159,41 @@ namespace GridGameAPI.Database.Migrations
                     b.HasIndex("DesignedByPlayerId");
 
                     b.ToTable("Maps");
+                });
+
+            modelBuilder.Entity("GridGameAPI.Model.PasswordResetToken", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<DateTime>("ExpiresAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("PlayerId")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(450)");
+
+                    b.Property<string>("TokenHash")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(450)");
+
+                    b.Property<DateTime?>("UsedAt")
+                        .HasColumnType("datetime2");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("PlayerId");
+
+                    b.HasIndex("TokenHash")
+                        .IsUnique();
+
+                    b.ToTable("PasswordResetTokens");
                 });
 
             modelBuilder.Entity("GridGameAPI.Model.PastOpponent", b =>
@@ -455,6 +498,14 @@ namespace GridGameAPI.Database.Migrations
                     b.Navigation("Player");
                 });
 
+            modelBuilder.Entity("GridGameAPI.Model.GridGame", b =>
+                {
+                    b.HasOne("GridGameAPI.Model.Map", null)
+                        .WithMany()
+                        .HasForeignKey("MapId")
+                        .OnDelete(DeleteBehavior.NoAction);
+                });
+
             modelBuilder.Entity("GridGameAPI.Model.Map", b =>
                 {
                     b.HasOne("GridGameAPI.Model.Player", "DesignedBy")
@@ -464,6 +515,17 @@ namespace GridGameAPI.Database.Migrations
                         .IsRequired();
 
                     b.Navigation("DesignedBy");
+                });
+
+            modelBuilder.Entity("GridGameAPI.Model.PasswordResetToken", b =>
+                {
+                    b.HasOne("GridGameAPI.Model.Player", "Player")
+                        .WithMany()
+                        .HasForeignKey("PlayerId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Player");
                 });
 
             modelBuilder.Entity("GridGameAPI.Model.PastOpponent", b =>

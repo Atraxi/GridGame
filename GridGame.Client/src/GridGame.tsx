@@ -2,8 +2,11 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import Board, { type JumpChoice, type MarkedCell } from "./components/game_board/Board";
 import GameAnalysis from "./components/GameAnalysis";
 import MoveHistory from "./components/MoveHistory";
+import PlayerLegend, { type PresenceEntry } from "./components/PlayerLegend";
+import RematchPanel from "./components/RematchPanel";
+import { playerColour } from "./components/game_board/playerColour";
 import * as signalR from '@microsoft/signalr';
-import { useLoaderData, useNavigate } from "react-router";
+import { useLoaderData, useNavigate, useParams } from "react-router";
 import type { GridGame } from "./model/GridGame";
 import type { BoardAnalysis, FinalResults } from "./model/analysis";
 import { computeStateHash } from "./model/stateHash";
@@ -28,14 +31,6 @@ type StatePush = {
     requiresAck: boolean,
     informallyDecidedFor: number | null,
 }
-type PresenceEntry = {
-    playerNumber: number,
-    userName: string | null,
-    /** 'away' is a locked seat whose holder hasn't been in since the game was last reopened */
-    status: 'connected' | 'unresponsive' | 'disconnected' | 'away' | 'open',
-    /** Held for good by its owner's account (see GridGameHub.LockSeat) */
-    locked: boolean,
-}
 /** GridGameHub.GetGameState */
 type Snapshot = {
     gameBoard: number[][],
@@ -44,6 +39,7 @@ type Snapshot = {
     turnNumber: number,
     isGameOver: boolean,
     resignedPlayerNumber: number | null,
+    rematchGameId: number | null,
     stateHash: number,
     informallyDecidedFor: number | null,
     presence: PresenceEntry[],
@@ -87,7 +83,14 @@ type PendingMove = { x: number, y: number, kind: MoveHint }
 const playerLabel = (entry: PresenceEntry) =>
     `Player ${entry.playerNumber}${entry.userName && !entry.userName.startsWith('Guest-') ? ` (${entry.userName})` : ''}`
 
-export default function GridGamePage() {
+/** Keyed on the game id, so following a rematch to its new game starts the page (and its hub connection) afresh -
+ * React Router keeps a component mounted when only a route param changes */
+export default function GridGameRoute() {
+    const { gameId } = useParams()
+    return <GridGamePage key={gameId} />
+}
+
+function GridGamePage() {
     const initialState = useLoaderData<GridGame>()
     const navigate = useNavigate()
     const [connection, setConnection] = useState<signalR.HubConnection | null>(null)
@@ -98,6 +101,12 @@ export default function GridGamePage() {
     const [finalResults, setFinalResults] = useState<FinalResults | null>(null)
     const [presence, setPresence] = useState<PresenceEntry[]>([])
     const [informallyDecidedFor, setInformallyDecidedFor] = useState<number | null>(null)
+    //Resigning before the board says the game is decided needs a second, deliberate step (see the resign controls)
+    const [confirmingResign, setConfirmingResign] = useState(false)
+    const [rematchGameId, setRematchGameId] = useState(initialState.rematchGameId ?? null)
+    //Read by the rematchCreated handler, which is attached once and so can't see the latest state
+    const myPlayerNumberRef = useRef<number | null>(null)
+    useEffect(() => { myPlayerNumberRef.current = myPlayerNumber }, [myPlayerNumber])
     //Only ever arrives for named accounts (see GridGameHub.BroadcastStateChange) - a guest simply never gets it, so
     //there's nothing to gate client-side
     const [analysis, setAnalysis] = useState<BoardAnalysis | null>(null)
@@ -125,7 +134,7 @@ export default function GridGamePage() {
     //any that chain on from the snapshot are replayed once it lands
     const resyncRef = useRef<{ pending: boolean, buffered: StatePush[] }>({ pending: false, buffered: [] })
 
-    const isMyTurn = myPlayerNumber != null && myPlayerNumber === gameState.currentPlayerNumber
+    const isMyTurn = !gameState.isGameOver && myPlayerNumber != null && myPlayerNumber === gameState.currentPlayerNumber
 
     //Final scores are a named-account-only feature - GridGame.FinalScores is left off every other response, so
     //this is the only place it's ever fetched from
@@ -227,6 +236,7 @@ export default function GridGamePage() {
                 }
                 setInformallyDecidedFor(snapshot.informallyDecidedFor)
                 setPresence(snapshot.presence)
+                setRematchGameId(snapshot.rematchGameId)
                 if (snapshot.analysis) {
                     setAnalysis(snapshot.analysis)
                 }
@@ -282,6 +292,14 @@ export default function GridGamePage() {
 
             hub.on('presenceUpdated', (update: PresenceEntry[]) => {
                 setPresence(update)
+            })
+
+            //Everyone who played is pulled straight into the rematch; spectators are offered a link instead (see RematchPanel)
+            hub.on('rematchCreated', ({ gameId }: { gameId: number }) => {
+                setRematchGameId(gameId)
+                if ((myPlayerNumberRef.current ?? 0) > 0) {
+                    navigate(`/gridgame/${gameId}`)
+                }
             })
 
             hub.on('moveRejected', (rejection: MoveRejected) => {
@@ -596,18 +614,25 @@ export default function GridGamePage() {
         connection?.invoke("lockSeat").catch(() => setStatusMessage("Couldn't lock your seat - check your connection and try again."))
     }
 
+    const sendResign = () => {
+        setConfirmingResign(false)
+        connection?.invoke("resign").catch(() => setStatusMessage("Couldn't resign - check your connection and try again."))
+    }
+
+    //Once the board says the game is decided against you, conceding is a single confirm
     const resign = () => {
-        if (connection && window.confirm('Resign and end the game for everyone? Scores are settled as the board stands.')) {
-            connection.invoke("resign").catch(() => setStatusMessage("Couldn't resign - check your connection and try again."))
+        if (window.confirm('Resign and end the game for everyone? Scores are settled as the board stands.')) {
+            sendResign()
         }
     }
 
     const presenceNotices = presence.filter(entry =>
         entry.playerNumber !== myPlayerNumber && entry.status !== 'connected' && entry.status !== 'open')
-    //Offered to anyone seated other than the player it's decided for - only a hint, the server allows it any time
-    const canResign = !gameState.isGameOver && myPlayerNumber != null && myPlayerNumber > 0 &&
-        informallyDecidedFor != null && informallyDecidedFor !== myPlayerNumber
     const isSeated = myPlayerNumber != null && myPlayerNumber > 0
+    //Offered up front to anyone seated other than the player it's decided for. Anyone seated can still resign at any
+    //other time, but only through the resign controls' extra warning step
+    const resignOffered = !gameState.isGameOver && isSeated &&
+        informallyDecidedFor != null && informallyDecidedFor !== myPlayerNumber
     const opponentMovesShown = isSeated && showOpponentMoves && !gameState.isGameOver
     const mySeatLocked = presence.some(entry => entry.playerNumber === myPlayerNumber && entry.locked)
     const pendingMarks: MarkedCell[] | undefined = pendingMove ? [{ x: pendingMove.x, y: pendingMove.y, mark: 'landing' }] : undefined
@@ -628,10 +653,17 @@ export default function GridGamePage() {
                         ? `Your turn - ${gameState.actionsRemainingInTurn} action${gameState.actionsRemainingInTurn === 1 ? '' : 's'} left.`
                         : `Waiting on player ${gameState.currentPlayerNumber}...`}
             </p>
+            <PlayerLegend
+                presence={presence}
+                myPlayerNumber={myPlayerNumber}
+                currentPlayerNumber={gameState.currentPlayerNumber}
+                resignedPlayerNumber={gameState.resignedPlayerNumber}
+                isGameOver={gameState.isGameOver}
+            />
             {isSeated && !gameState.isGameOver && (
                 <div className="seat-panel">
                     <span>
-                        <span className="seat-panel__swatch" style={{ background: `var(--player-${((myPlayerNumber - 1) % 6) + 1})` }} />
+                        <span className="seat-panel__swatch" style={{ background: playerColour(myPlayerNumber) }} />
                         You're player {myPlayerNumber}.
                     </span>
                     {mySeatLocked
@@ -644,6 +676,23 @@ export default function GridGamePage() {
                                     Keeps player {myPlayerNumber} yours whenever this game is reopened, so nobody else can take it.
                                 </span>
                             </>}
+                    {!resignOffered && !confirmingResign && (
+                        <button type="button" className="seat-panel__resign" onClick={() => setConfirmingResign(true)}>Resign...</button>
+                    )}
+                </div>
+            )}
+            {confirmingResign && isSeated && !gameState.isGameOver && !resignOffered && (
+                <div className="resign-confirm" role="alert">
+                    <p>
+                        <strong>{informallyDecidedFor === myPlayerNumber
+                            ? "The board suggests you're winning."
+                            : "This game isn't decided yet."}</strong> Resigning ends it for everyone right now, and
+                        scores the board as it stands - contested tiles go to nobody. It can't be undone.
+                    </p>
+                    <div className="resign-confirm__buttons">
+                        <button type="button" onClick={() => setConfirmingResign(false)}>Keep playing</button>
+                        <button type="button" className="resign-confirm__go" onClick={sendResign}>Resign anyway</button>
+                    </div>
                 </div>
             )}
             {myPlayerNumber === 0 && !gameState.isGameOver && (
@@ -661,7 +710,16 @@ export default function GridGamePage() {
                 </p>
             ))}
             {gameState.isGameOver && <FinalResultsSummary results={finalResults} />}
-            {canResign && (
+            {gameState.isGameOver && (
+                <RematchPanel
+                    connection={connection}
+                    isSeated={isSeated}
+                    rematchGameId={rematchGameId}
+                    mapId={initialState.mapId ?? null}
+                    playerCount={gameState.playerCount}
+                />
+            )}
+            {resignOffered && (
                 <p className="resign-offer">
                     The board suggests this game is decided in player {informallyDecidedFor}'s favour.{' '}
                     <button type="button" onClick={resign}>Resign</button>

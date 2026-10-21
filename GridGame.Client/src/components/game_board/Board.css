@@ -6,6 +6,8 @@
 	--player-4: #dc9a2e;
 	--player-5: #9b5de5;
 	--player-6: #16a6a6;
+	--player-7: #d64f9a;
+	--player-8: #8d6e3f;
 
 	/* Move glyphs: white strokes on a dark casing, so they read on every tile colour. Shared with the move legend */
 	--glyph-spawn: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke-linecap='round'%3E%3Cpath d='M12 6v12M6 12h12' stroke='%23000' stroke-opacity='.55' stroke-width='5'/%3E%3Cpath d='M12 6v12M6 12h12' stroke='%23fff' stroke-width='2.5'/%3E%3C/svg%3E");

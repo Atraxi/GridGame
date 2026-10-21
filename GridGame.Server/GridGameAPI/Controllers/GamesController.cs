@@ -148,21 +148,15 @@ namespace GridGameAPI.Controllers
         [HttpPost]
         public async Task<ActionResult<int>> CreateFromMap(CreateGameFromMapRequest request)
         {
-            var map = await _context.Maps.SingleOrDefaultAsync(map => map.Id == request.MapId);
-            //A draft hasn't passed the playability checks (see MapsController.Validate) - hosting one could start a game
-            //some player can never move in. Someone else's draft is reported as missing, same as MapsController.Get
-            if (map is null || (map.IsDraft && map.DesignedByPlayerId != User.FindFirstValue(ClaimTypes.NameIdentifier)))
+            var hostId = User.FindFirstValue(ClaimTypes.NameIdentifier)!;
+            var (map, error) = await GameHosting.FindHostableMapAsync(_context, request.MapId, hostId);
+            if (map is null)
             {
-                return NotFound("No map with that id exists.");
-            }
-            if (map.IsDraft)
-            {
-                return BadRequest("Publish this map before hosting a game from it.");
+                return error == GameHosting.MapNotFound ? NotFound(error) : BadRequest(error);
             }
 
             //Only people already in the host's past-opponents list can be invited - the list is what the client offers,
             //and it keeps hosts from enumerating arbitrary account ids
-            var hostId = User.FindFirstValue(ClaimTypes.NameIdentifier)!;
             var invitedIds = (request.InvitedPlayerIds ?? []).Where(id => id != hostId).Distinct().ToList();
             if (invitedIds.Count > 0)
             {
@@ -175,21 +169,7 @@ namespace GridGameAPI.Controllers
                 }
             }
 
-            var newGame = new GridGame
-            {
-                CreationDate = DateTime.Now,
-                Name = request.Name,
-                TurnNumber = 0,
-                PlayerCount = map.PlayerCount,
-                ActionsPerTurn = map.ActionsPerTurn,
-                CurrentPlayerNumber = 1,
-                ActionsRemainingInTurn = map.ActionsPerTurn,
-                Players = [],
-                //Cloned so that playing the game can never mutate the map's own saved template
-                GameBoard = (int[,])map.StartingBoard.Clone(),
-                IsInviteOnly = invitedIds.Count > 0,
-            };
-
+            var newGame = GameHosting.NewGame(map, request.Name, isInviteOnly: invitedIds.Count > 0);
             _context.GridGames.Add(newGame);
             if (newGame.IsInviteOnly)
             {

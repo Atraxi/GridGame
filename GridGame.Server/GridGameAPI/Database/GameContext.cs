@@ -20,11 +20,13 @@ namespace GridGameAPI.Database
 
         public DbSet<PastOpponent> PastOpponents { get; set; }
 
+        public DbSet<PasswordResetToken> PasswordResetTokens { get; set; }
+
         protected override void ConfigureConventions(ModelConfigurationBuilder configurationBuilder)
         {
             configurationBuilder
                 .Properties<int[,]>()
-                .HaveConversion<IntMultiDimensionalArrayConverter>();
+                .HaveConversion<IntMultiDimensionalArrayConverter, IntMultiDimensionalArrayComparer>();
         }
 
         protected override void OnModelCreating(ModelBuilder builder)
@@ -44,6 +46,22 @@ namespace GridGameAPI.Database
             builder.Entity<RefreshToken>()
                 .HasIndex(refreshToken => refreshToken.TokenHash)
                 .IsUnique();
+
+            builder.Entity<PasswordResetToken>()
+                .HasOne(token => token.Player)
+                .WithMany()
+                .HasForeignKey(token => token.PlayerId);
+            builder.Entity<PasswordResetToken>()
+                .HasIndex(token => token.TokenHash)
+                .IsUnique();
+
+            //Which map a game was hosted from, so a rematch can be hosted on it again. Maps are never deleted, so this
+            //doesn't cascade - SQL Server would refuse it anyway, since Maps already cascades from its designer
+            builder.Entity<GridGame>()
+                .HasOne<Map>()
+                .WithMany()
+                .HasForeignKey(game => game.MapId)
+                .OnDelete(DeleteBehavior.NoAction);
 
             //Neither table is reachable by navigation from GridGame: the hub force-saves the whole game entity graph
             //(see GridGameHub.PersistGame), so seats and invites are written explicitly instead of riding along with it

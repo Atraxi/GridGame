@@ -169,6 +169,27 @@ export const authorizedFetch = async (url: string, init?: RequestInit) => {
 export const postToUsers = async (action: 'Promote' | 'Login', body: unknown) =>
 	storeAuth(await authorizedFetch(`/Users/${action}`, { method: 'POST', body: JSON.stringify(body) }))
 
+/** Asks for a reset link to be emailed. Succeeds whether or not an account matched - the server won't say which */
+export async function requestPasswordReset(userNameOrEmail: string) {
+	const response = await fetchWhileWaking('/Users/ForgotPassword', {
+		method: 'POST',
+		headers: { 'Content-Type': 'application/json' },
+		body: JSON.stringify({ userNameOrEmail }),
+	})
+	if (!response.ok) {
+		throw new Error(await response.text() || `Request failed: ${response.status}`)
+	}
+}
+
+/** Sets a new password from an emailed reset link, and signs in as that account - replacing whoever this browser was */
+export async function resetPassword(token: string, password: string) {
+	return storeAuth(await fetchWhileWaking('/Users/ResetPassword', {
+		method: 'POST',
+		headers: { 'Content-Type': 'application/json' },
+		body: JSON.stringify({ token, password }),
+	}))
+}
+
 /** Signs this device out (revoking its refresh token server-side). The next request mints a fresh guest */
 export async function logout() {
 	const refreshToken = localStorage.getItem(REFRESH_TOKEN_KEY)

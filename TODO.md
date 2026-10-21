@@ -57,5 +57,6 @@ Follow-ups deliberately left out of the sync / auth / end-game work, roughly in 
   family. It's held back because concurrent renewals must never look like reuse: the Web Lock in `auth.ts` now
   serialises renewal across tabs, but separate browsers and devices each keep their own chain. `GuestCleanup` already
   keeps revoked rows for 30 days, which reuse detection would need.
-- REST calls outside route loaders (`GameList`, `StartGameDialog`, `CreateMapPage`) show a SessionExpiredError as a
-  plain error message rather than redirecting to the login page.
+- REST calls outside route loaders (`GameList`, `StartGameDialog`) show a SessionExpiredError as a plain error message
+  rather than redirecting to the login page. `CreateMapPage` deliberately keeps the editor up instead, so an unsaved
+  design isn't lost, and points to logging in again in another tab.

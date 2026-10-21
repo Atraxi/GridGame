@@ -47,5 +47,13 @@ namespace GridGameAPI.Model
         /// history is a named-account feature, served only via GamesController.GetMoveHistory</summary>
         [JsonIgnore]
         public List<GameAction> MoveLog { get; set; } = [];
+
+        /// <summary>The map this game was hosted from - what a rematch is hosted on by default. Null for games hosted
+        /// before this was recorded</summary>
+        public int? MapId { get; set; }
+
+        /// <summary>Set once someone starts a rematch of this finished game (see GridGameHub.Rematch), so anyone who
+        /// opens it afterwards can follow on to the new one, and a second rematch request joins it instead</summary>
+        public int? RematchGameId { get; set; }
     }
 }

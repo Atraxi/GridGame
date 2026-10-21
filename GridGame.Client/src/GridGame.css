@@ -178,6 +178,44 @@
 	color: var(--text);
 }
 
+.seat-panel__resign {
+	font-size: 14px;
+}
+
+/* Deliberately loud, like the jump choice - it's the last step before ending the game for everyone */
+.resign-confirm {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	flex-wrap: wrap;
+	gap: 8px 16px;
+	max-width: 640px;
+	box-sizing: border-box;
+	margin: 8px auto;
+	padding: 10px 16px;
+	border: 2px solid #d8532e;
+	border-radius: 10px;
+	background: color-mix(in srgb, #d8532e 12%, var(--bg));
+	color: var(--text-h);
+}
+
+.resign-confirm p {
+	flex: 1 1 260px;
+	min-width: 0;
+}
+
+.resign-confirm__buttons {
+	display: flex;
+	gap: 8px;
+}
+
+.resign-confirm__go {
+	background: #d8532e;
+	border-color: #d8532e;
+	color: #fff;
+	font-weight: 600;
+}
+
 .seat-panel__swatch {
 	display: inline-block;
 	width: 14px;

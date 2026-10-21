@@ -1,9 +1,8 @@
 import { useEffect } from "react"
 import type { GameAction } from "../model/history"
 import { UNCLAIMED } from "./game_board/Tile"
+import { playerColour } from "./game_board/playerColour"
 import "./MoveHistory.css"
-
-const PALETTE_SIZE = 6
 
 //Non-breaking spaces keep a coordinate on one line when a narrow screen wraps the description
 const NBSP = String.fromCharCode(160)
@@ -20,7 +19,7 @@ function describe(action: GameAction) {
 }
 
 function Swatch({ player }: { player: number }) {
-	return <span className="move-history__swatch" style={{ background: `var(--player-${((player - 1) % PALETTE_SIZE) + 1})` }} />
+	return <span className="move-history__swatch" style={{ background: playerColour(player) }} />
 }
 
 /**

@@ -1,0 +1,63 @@
+.rematch-panel {
+	max-width: 640px;
+	box-sizing: border-box;
+	margin: 12px auto;
+	padding: 12px 16px;
+	border: 1px solid var(--border);
+	border-radius: 10px;
+	color: var(--text-h);
+}
+
+.rematch-panel p {
+	margin: 4px 0 8px;
+}
+
+.rematch-panel__actions {
+	display: flex;
+	flex-wrap: wrap;
+	justify-content: center;
+	gap: 8px;
+}
+
+.rematch-panel__go {
+	display: inline-block;
+	padding: 6px 14px;
+	border: 1px solid var(--accent);
+	border-radius: 6px;
+	background: var(--accent);
+	color: #fff;
+	font-weight: 600;
+	text-decoration: none;
+}
+
+.rematch-panel__go:disabled {
+	opacity: 0.6;
+}
+
+.rematch-panel__field {
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+	margin-bottom: 8px;
+	font-size: 14px;
+	text-align: left;
+	color: var(--text);
+}
+
+/* A long map name in an option would otherwise widen the select past a phone's screen */
+.rematch-panel__field select {
+	width: 100%;
+	max-width: 100%;
+	/* Below 16px, iOS zooms the page in on focus */
+	font-size: 16px;
+	padding: 6px 8px;
+}
+
+.rematch-panel__hint {
+	font-size: 14px;
+	color: var(--text);
+}
+
+.rematch-panel__error {
+	color: #d8532e;
+}

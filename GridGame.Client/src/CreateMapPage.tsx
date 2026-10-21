@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type CSSProperties, type PointerEvent } fr
 import { Link, useBlocker, useLoaderData, useLocation, useNavigate } from "react-router"
 import Tile, { UNCLAIMED, DEAD } from "./components/game_board/Tile"
 import "./components/game_board/Board.css"
-import { authorizedFetch, isGuest } from "./auth"
+import { authorizedFetch, isGuest, SessionExpiredError } from "./auth"
 import type { MapEditorSource } from "./loaders"
 import "./CreateMapPage.css"
 
@@ -33,6 +33,19 @@ const paletteEntries = (playerCount: number) => [
 ]
 
 type Design = { name: string, playerCount: number, actionsPerTurn: number, board: number[][] }
+
+/** A rejected save's reason. Validation failures come back as plain text, but a request the server couldn't even read
+ * is answered with ProblemDetails JSON, which is no use shown raw */
+async function errorMessageFrom(response: Response) {
+	const text = await response.text()
+	try {
+		const problem = JSON.parse(text) as { title?: string, errors?: Record<string, string[]> }
+		const details = Object.values(problem.errors ?? {}).flat()
+		return [problem.title, ...details].filter(Boolean).join(' ') || `Request failed: ${response.status}`
+	} catch {
+		return text || `Request failed: ${response.status}`
+	}
+}
 
 /** What the editor starts from: a blank board, one of the player's own maps to edit, or any published map to copy */
 function initialDesign(source: MapEditorSource): Design {
@@ -74,6 +87,11 @@ function CreateMapPage() {
 	const [isDraft, setIsDraft] = useState(source.mode === 'edit' ? source.map.isDraft : true)
 	const [savedSnapshot, setSavedSnapshot] = useState(() => source.mode === 'edit' ? snapshotOf(initial) : null)
 	const [error, setError] = useState<string | null>(null)
+	const [sessionExpired, setSessionExpired] = useState(false)
+	const errorRef = useRef<HTMLDivElement>(null)
+	//Decided once, on arrival: a session that expires mid-edit clears the stored login, and re-checking on every render
+	//would then swap the whole editor - and the unsaved design in it - for the "you need an account" message
+	const [guest] = useState(isGuest)
 	//Carried across the redirect from a new map's first save to its edit page, which remounts the editor
 	const [notice, setNotice] = useState<string | null>((location.state as { notice?: string } | null)?.notice ?? null)
 	const [saving, setSaving] = useState(false)
@@ -125,7 +143,14 @@ function CreateMapPage() {
 		}
 	}, [blocker])
 
-	if (isGuest()) {
+	//On a phone the message can land below the fold, which made a failed save look like nothing happening at all
+	useEffect(() => {
+		if (error) {
+			errorRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+		}
+	}, [error])
+
+	if (guest) {
 		return (
 			<section>
 				<h1>Create a map</h1>
@@ -184,6 +209,7 @@ function CreateMapPage() {
 		const design = { name, playerCount, actionsPerTurn, board }
 		setSaving(true)
 		setError(null)
+		setSessionExpired(false)
 		setNotice(null)
 		authorizedFetch(mapId == null ? '/Maps/Create' : `/Maps/Update?mapId=${mapId}`, {
 			method: 'POST',
@@ -191,7 +217,7 @@ function CreateMapPage() {
 		})
 			.then(async response => {
 				if (!response.ok) {
-					throw new Error(await response.text())
+					throw new Error(await errorMessageFrom(response))
 				}
 				const savedId = (await response.json()) as number
 				dirtyRef.current = false
@@ -206,7 +232,10 @@ function CreateMapPage() {
 					setNotice('Draft saved.')
 				}
 			})
-			.catch(err => setError(err.message))
+			.catch(err => {
+				setSessionExpired(err instanceof SessionExpiredError)
+				setError(err.message)
+			})
 			.finally(() => setSaving(false))
 	}
 
@@ -322,6 +351,17 @@ function CreateMapPage() {
 				</div>
 			</div>
 
+			{error && (
+				<div ref={errorRef} className="map-editor__error" role="alert">
+					<p>Couldn't save the map: {error}</p>
+					{sessionExpired && (
+						<p>
+							Your design is still here. <a href="/login?expired=1" target="_blank" rel="noopener">Log in again in a new
+							tab</a>, then come back to this one and save again.
+						</p>
+					)}
+				</div>
+			)}
 			<div className="map-editor__actions">
 				<button type="button" onClick={() => save(true)} disabled={saving}>
 					{isDraft ? 'Save draft' : 'Unpublish and save as draft'}
@@ -330,10 +370,9 @@ function CreateMapPage() {
 					{saving ? 'Saving...' : isDraft ? 'Publish map' : 'Save changes'}
 				</button>
 				<span className="map-editor__status" aria-live="polite">
-					{dirty ? 'Unsaved changes' : notice}
+					{!name.trim() ? 'Give the map a name to publish it.' : dirty ? 'Unsaved changes' : notice}
 				</span>
 			</div>
-			{error && <p className="map-editor__error">{error}</p>}
 		</section>
 	)
 }

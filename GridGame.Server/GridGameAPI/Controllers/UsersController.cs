@@ -19,7 +19,11 @@ namespace GridGameAPI.Controllers
         RefreshTokenManager _refreshTokenManager,
         GuestCleanup _guestCleanup,
         GameContext _context,
-        IOptions<JwtSettings> _jwtSettings) : ControllerBase
+        PasswordResetManager _passwordResetManager,
+        EmailSender _emailSender,
+        IOptions<AppSettings> _appSettings,
+        IOptions<JwtSettings> _jwtSettings,
+        ILogger<UsersController> _logger) : ControllerBase
     {
         private DateTime AccessTokenExpiry => DateTime.UtcNow.AddMinutes(_jwtSettings.Value.AccessTokenExpiryMinutes);
 
@@ -56,12 +60,24 @@ namespace GridGameAPI.Controllers
             {
                 return Unauthorized();
             }
-            await _userManager.SetUserNameAsync(player, model.UserName);
-            await _userManager.SetEmailAsync(player, model.Email);
-            var result = await _userManager.AddPasswordAsync(player, model.Password);
-            if (!result.Succeeded)
+            //Every step is checked: a rejected user name (one with a space in it, say) used to be ignored, leaving a
+            //"Guest-" account that had a password but still counted as a guest. The password is checked before anything
+            //is saved, so a weak one doesn't leave the account half-promoted either
+            if (await ValidatePasswordAsync(player, model.Password) is { } invalidPassword)
             {
-                return BadRequest(string.Join(" ", result.Errors.Select(error => error.Description)));
+                return BadRequest(invalidPassword);
+            }
+            foreach (var step in new Func<Task<IdentityResult>>[]
+            {
+                () => _userManager.SetUserNameAsync(player, model.UserName),
+                () => _userManager.SetEmailAsync(player, model.Email),
+                () => _userManager.AddPasswordAsync(player, model.Password),
+            })
+            {
+                if (await step() is { Succeeded: false } failed)
+                {
+                    return BadRequest(Describe(failed));
+                }
             }
             return await TokenFor(player);
         }
@@ -76,6 +92,95 @@ namespace GridGameAPI.Controllers
             }
             return await TokenFor(player);
         }
+
+        /// <summary>Emails a reset link to every named account matching the user name or email address. Answers the
+        /// same way whether or not anything matched, so it can't be used to find out whether an account exists</summary>
+        [HttpPost]
+        public async Task<ActionResult> ForgotPassword(ForgotPasswordModel model)
+        {
+            var publicUrl = _appSettings.Value.PublicUrl?.TrimEnd('/');
+            if (string.IsNullOrEmpty(publicUrl))
+            {
+                _logger.LogError("App:PublicUrl isn't configured, so password reset links can't be built");
+                return NoContent();
+            }
+
+            //Queried directly rather than with FindByEmailAsync, which throws when an address is shared - emails aren't
+            //required to be unique. Guests have no password to reset, and nowhere to send the link anyway
+            var lookup = model.UserNameOrEmail?.Trim() ?? "";
+            var normalizedName = _userManager.NormalizeName(lookup);
+            var normalizedEmail = _userManager.NormalizeEmail(lookup);
+            var players = await _context.Users
+                .Where(player => player.NormalizedUserName == normalizedName || player.NormalizedEmail == normalizedEmail)
+                .Where(player => player.PasswordHash != null && player.Email != null)
+                .Take(10)
+                .ToListAsync();
+
+            foreach (var player in players)
+            {
+                if (await _passwordResetManager.IssueAsync(player) is not { } token)
+                {
+                    continue;
+                }
+                _emailSender.Queue(player.Email!, "Reset your GridGame password",
+                    $"""
+                    Someone asked to reset the password for the GridGame account "{player.UserName}".
+
+                    To choose a new password, open this link within the next hour:
+                    {publicUrl}/reset-password?token={token}
+
+                    If that wasn't you, you can ignore this email - your password hasn't changed.
+                    """);
+            }
+            return NoContent();
+        }
+
+        /// <summary>Sets a new password from an emailed reset link, then signs in with it. Every other device is signed
+        /// out, since a reset usually means the old password can't be trusted</summary>
+        [HttpPost]
+        public async Task<ActionResult> ResetPassword(ResetPasswordModel model)
+        {
+            const string unusableLink = "This reset link has expired or has already been used. Ask for a new one.";
+            var player = await _passwordResetManager.PeekAsync(model.Token ?? "");
+            if (player is null)
+            {
+                return BadRequest(unusableLink);
+            }
+            //Checked before the link is used up, so a too-short password doesn't cost the user their link
+            if (await ValidatePasswordAsync(player, model.Password) is { } invalidPassword)
+            {
+                return BadRequest(invalidPassword);
+            }
+            if (!await _passwordResetManager.ConsumeAsync(model.Token!))
+            {
+                return BadRequest(unusableLink);
+            }
+
+            var removed = await _userManager.RemovePasswordAsync(player);
+            var result = removed.Succeeded ? await _userManager.AddPasswordAsync(player, model.Password) : removed;
+            if (!result.Succeeded)
+            {
+                return BadRequest(Describe(result));
+            }
+            await _refreshTokenManager.RevokeAllAsync(player.Id);
+            return await TokenFor(player);
+        }
+
+        /// <returns>Why the password isn't acceptable, or null if it is</returns>
+        private async Task<string?> ValidatePasswordAsync(Player player, string password)
+        {
+            foreach (var validator in _userManager.PasswordValidators)
+            {
+                if (await validator.ValidateAsync(_userManager, player, password) is { Succeeded: false } invalid)
+                {
+                    return Describe(invalid);
+                }
+            }
+            return null;
+        }
+
+        private static string Describe(IdentityResult result) =>
+            string.Join(" ", result.Errors.Select(error => error.Description));
 
         //Deliberately anonymous - the whole point is to mint a new access token once the old one has already expired
         [HttpPost]

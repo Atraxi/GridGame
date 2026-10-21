@@ -1,4 +1,5 @@
 import type { BoardAnalysis, PlayerAnalysis, VictoryStatus } from "../model/analysis"
+import { playerColour } from "./game_board/playerColour"
 import "./GameAnalysis.css"
 
 const STATUS_LABELS: Record<VictoryStatus, string> = {
@@ -40,7 +41,7 @@ export default function GameAnalysis({ analysis, myPlayerNumber }: { analysis: B
 							<th scope="col"></th>
 							{players.map(player => (
 								<th scope="col" key={player.playerNumber}>
-									<span className="game-analysis__swatch" style={{ background: `var(--player-${((player.playerNumber - 1) % 6) + 1})` }} />
+									<span className="game-analysis__swatch" style={{ background: playerColour(player.playerNumber) }} />
 									P{player.playerNumber}{player.playerNumber === myPlayerNumber && ' (you)'}
 								</th>
 							))}

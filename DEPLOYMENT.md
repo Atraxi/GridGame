@@ -62,9 +62,11 @@ Nothing here needs the Azure CLI or GitHub CLI installed locally.
    | `SCM_DO_BUILD_DURING_DEPLOYMENT` | `false` — CI ships an already-built app |
    | `WEBSITES_CONTAINER_START_TIME_LIMIT` | `600` — the startup migration can wait on a paused database |
    | `Azure__SignalR__ConnectionString` | From step 4. Leave it out to have the web app hold connections itself. |
+   | `App__PublicUrl` | The address players use, e.g. `https://grid.example.com`. Password reset links are built from it, so without it no reset email is sent. |
+   | `Email__Host`, `Email__UserName`, `Email__Password`, `Email__FromAddress` | SMTP for password reset emails — see [Password reset email](#password-reset-email). Leave `Email__Host` out and reset links are only written to the log. |
 
    `Jwt__AccessTokenExpiryMinutes` (default 60) and `Jwt__RefreshTokenExpiryDays` (default 180) are
-   optional.
+   optional, as are `Email__Port` (default 587) and `Email__FromName` (default `GridGame`).
 
    Use this connection string. The long timeout and retries are what turn a paused database's
    30–60-second resume into a slow first request rather than an error:
@@ -105,6 +107,25 @@ That limits the damage; it is not a cap, because of the same reporting lag.
 for Students, and Visual Studio subscriber credits. Those have a *spending limit* that disables the
 subscription when the credit runs out rather than billing. Visual Studio credits are licensed for
 dev/test only, so they don't fit a public game.
+
+### Password reset email
+
+"Forgot password" emails a single-use link that works for an hour, over plain SMTP on port 587 with STARTTLS.
+Azure blocks outbound port 25, but 587 is fine, and so is any provider. Free options, from least to most setup:
+
+- **A Gmail account with an app password.** Turn on 2-step verification, then create an app password under
+  *Google Account* → *Security* → *App passwords*. Use host `smtp.gmail.com`, the address as `Email__UserName` and
+  `Email__FromAddress`, and the app password as `Email__Password`. Mail comes from that personal address, and the
+  limit is about 500 a day. Outlook.com accounts are moving SMTP to OAuth only, so a password login there may be
+  refused.
+- **Brevo's free tier** (300 emails a day) to send as your own domain. Verify the domain, then add the SPF and DKIM
+  records it gives you in Cloudflare DNS. That's roughly ten minutes, and mail lands in inboxes rather than spam far
+  more reliably than from a self-run server. Host `smtp-relay.brevo.com`, with the SMTP login and key from its
+  *SMTP & API* page.
+
+Each account gets at most one email every two minutes, and the form answers the same way whether or not an account
+matched. Locally, with no `Email:Host` configured, the link is written to the server log instead. Accounts created
+without an email address can't reset their password.
 
 ## Letting GitHub deploy
 

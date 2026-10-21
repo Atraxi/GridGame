@@ -12,6 +12,7 @@ import { loadJson, loadMapToEdit, loadNewMap } from './loaders.ts';
 import { isGuest } from './auth.ts';
 import RouteError from './RouteError.tsx';
 import HelpPage from './HelpPage.tsx';
+import { ForgotPasswordPage, ResetPasswordPage } from './PasswordResetPages.tsx';
 
 const router = createBrowserRouter([
   {
@@ -34,6 +35,15 @@ const router = createBrowserRouter([
           {
             path: "login",
             Component: LoginPage,
+          },
+          {
+            path: "forgot-password",
+            Component: ForgotPasswordPage,
+          },
+          {
+            //The link emailed by UsersController.ForgotPassword
+            path: "reset-password",
+            Component: ResetPasswordPage,
           },
           {
             path: "help",

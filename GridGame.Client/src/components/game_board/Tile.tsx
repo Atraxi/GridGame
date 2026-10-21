@@ -1,10 +1,9 @@
 import type { CSSProperties } from "react";
 import type { OpponentMove } from "../../model/moves";
+import { playerColour } from "./playerColour";
 
 export const UNCLAIMED = 0
 export const DEAD = -1
-
-const PALETTE_SIZE = 6
 
 export type Edges = { top: boolean, right: boolean, bottom: boolean, left: boolean }
 
@@ -47,8 +46,6 @@ function territoryLabel(territory: Territory) {
 function opponentMoveLabel({ kind, player }: OpponentMove) {
 	return `${player == null ? 'more than one opponent' : `player ${player}`} could ${kind} here next`
 }
-
-const playerColour = (player: number) => `var(--player-${((player - 1) % PALETTE_SIZE) + 1})`
 
 export default function Tile({ owner, edges, moveHint, territory, opponentMove, historyMark, onTileClicked, cell }: {
 	owner: number, edges: Edges, moveHint?: MoveHint, territory?: Territory,

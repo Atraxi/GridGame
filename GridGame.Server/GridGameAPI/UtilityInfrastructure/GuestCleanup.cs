@@ -67,9 +67,10 @@ namespace GridGameAPI.UtilityInfrastructure
                 var tokensDeleted = await context.RefreshTokens
                     .Where(token => token.ExpiresAt < cutoff || (token.RevokedAt != null && token.RevokedAt < revokedCutoff))
                     .ExecuteDeleteAsync();
+                var resetLinksDeleted = await PasswordResetManager.DeleteExpiredAsync(context, cutoff);
 
-                _logger.LogInformation("Guest cleanup removed {Guests} unrecoverable guest accounts and {Tokens} dead refresh tokens",
-                    guestsDeleted, tokensDeleted);
+                _logger.LogInformation("Guest cleanup removed {Guests} unrecoverable guest accounts, {Tokens} dead refresh tokens and {ResetLinks} expired password reset links",
+                    guestsDeleted, tokensDeleted, resetLinksDeleted);
             }
             catch (Exception exception)
             {

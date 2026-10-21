@@ -90,3 +90,24 @@
 	text-decoration: underline;
 	cursor: pointer;
 }
+
+/* The field labels above are capitalised from their state keys; these are written out in full instead */
+.auth-page__field--plain {
+	text-transform: none;
+}
+
+.auth-page__hint {
+	margin: 0;
+	font-size: 14px;
+	color: var(--text);
+}
+
+.auth-page__aside {
+	margin-top: 16px;
+	font-size: 14px;
+}
+
+.auth-page__form button[type="submit"]:disabled {
+	opacity: 0.6;
+	cursor: default;
+}

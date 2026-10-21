@@ -73,10 +73,13 @@ namespace GridGameAPI.ActiveGames
             Connections.Where(connection => connection.Value == userId).Select(connection => connection.Key);
 
         /// <summary>Gives the user the lowest-numbered free seat, unless they already have one, the game is invite-only
-        /// and they aren't invited, or every seat is taken. Call under MembershipLock</summary>
+        /// and they aren't invited, the game is over, or every seat is taken. Call under MembershipLock</summary>
         public void TryTakeSeat(string userId)
         {
-            if (PlayerNumbers.ContainsKey(userId) || InvitedUserIds?.Contains(userId) == false)
+            //Nobody new is seated once the game is over: a seat is what lets someone start a rematch (see
+            //GridGameHub.Rematch) and be pulled into it, so it has to mean they actually played. Whoever held one when
+            //the game ended keeps it for as long as the session stays loaded
+            if (PlayerNumbers.ContainsKey(userId) || InvitedUserIds?.Contains(userId) == false || GridGame.IsGameOver)
             {
                 return;
             }

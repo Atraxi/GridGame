@@ -142,6 +142,7 @@ namespace GridGameAPI.ActiveGames.SignalRHubs
                     turnNumber = game.TurnNumber,
                     isGameOver = game.IsGameOver,
                     resignedPlayerNumber = game.ResignedPlayerNumber,
+                    rematchGameId = game.RematchGameId,
                     stateHash = session.StateHash,
                     informallyDecidedFor = session.Analysis?.InformallyDecidedFor,
                     presence = session.Presence(),
@@ -281,8 +282,9 @@ namespace GridGameAPI.ActiveGames.SignalRHubs
         }
 
         /// <summary>Concedes, ending the game for everyone. Scored as the board stands: owned tiles plus uncontested
-        /// territory, with contested cells left to nobody (see GameEndAnalysis.ComputeScores). The client only offers
-        /// this once the board analysis says the game is informally decided, but any seated player may call it</summary>
+        /// territory, with contested cells left to nobody (see GameEndAnalysis.ComputeScores). Any seated player may
+        /// call it at any time - the client just asks for an extra confirmation unless the board analysis says the
+        /// game is already informally decided against them</summary>
         public async Task Resign()
         {
             var session = _sessionManager.GetByConnectionId(Context.ConnectionId);
@@ -307,6 +309,69 @@ namespace GridGameAPI.ActiveGames.SignalRHubs
                 _listVersion.Bump();
                 await BroadcastStateChange(session, [], previousStateHash, requiresAck: true);
                 await PersistGame(game);
+            }
+            finally
+            {
+                session.MoveLock.Release();
+            }
+        }
+
+        /// <summary>Hosts a new game for everyone in this finished one - on the same map unless another published map
+        /// is given - and pulls them into it with rematchCreated. Seats aren't carried over: they're handed out in the
+        /// order people arrive, as in any new game, so anyone who doesn't follow leaves their seat to whoever joins
+        /// next. For the same reason the rematch is open to anyone, even if this game was invite-only. Hosting is a
+        /// named-account privilege, as for GamesController.CreateFromMap. Only one rematch is ever made per game -
+        /// asking again returns the existing one</summary>
+        /// <param name="mapId">Null for the map this game was hosted from</param>
+        /// <returns>{ gameId } on success, otherwise { error }</returns>
+        public async Task<object> Rematch(int? mapId)
+        {
+            var session = _sessionManager.GetByConnectionId(Context.ConnectionId);
+            var userId = Context.UserIdentifier!;
+            if (session is null)
+            {
+                return new { error = "You're no longer connected to this game - refresh the page and try again." };
+            }
+            if (!IsNamedAccount)
+            {
+                return new { error = "Only named accounts can host a rematch." };
+            }
+
+            await session.MoveLock.WaitAsync();
+            try
+            {
+                var game = session.GridGame;
+                if (!game.IsGameOver)
+                {
+                    return new { error = "This game hasn't ended yet." };
+                }
+                if (!session.PlayerNumbers.ContainsKey(userId))
+                {
+                    return new { error = "Only this game's players can start a rematch." };
+                }
+                if (game.RematchGameId is { } existing)
+                {
+                    return new { gameId = existing };
+                }
+                if ((mapId ?? game.MapId) is not { } chosenMapId)
+                {
+                    return new { error = "This game was hosted before maps were recorded - pick a map for the rematch." };
+                }
+                var (map, error) = await GameHosting.FindHostableMapAsync(_gameContext, chosenMapId, userId);
+                if (map is null)
+                {
+                    return new { error };
+                }
+
+                var rematch = GameHosting.NewGame(map, GameHosting.RematchName(game.Name), isInviteOnly: false);
+                _gameContext.GridGames.Add(rematch);
+                await _gameContext.SaveChangesAsync();
+                game.RematchGameId = rematch.Id;
+                _listVersion.Bump();
+
+                await Clients.Clients(session.Connections.Keys.ToList()).SendAsync("rematchCreated", new { gameId = rematch.Id });
+                await PersistGame(game);
+                return new { gameId = rematch.Id };
             }
             finally
             {
