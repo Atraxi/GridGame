@@ -119,7 +119,7 @@ jobs:
     name: Deploy Cloudflare proxy
     runs-on: ubuntu-latest
     needs: deploy
-    if: vars.CLOUDFLARE_ACCOUNT_ID != ''
+    if: secrets.CLOUDFLARE_ACCOUNT_ID != ''
     steps:
       - uses: actions/checkout@v4
 
