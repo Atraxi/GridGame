@@ -52,6 +52,10 @@ namespace GridGameAPI.Database.Migrations
                     b.Property<bool>("IsGameOver")
                         .HasColumnType("bit");
 
+                    b.Property<string>("MoveLog")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
                     b.Property<string>("Name")
                         .IsRequired()
                         .HasColumnType("nvarchar(max)");
@@ -87,6 +91,9 @@ namespace GridGameAPI.Database.Migrations
                     b.Property<string>("DesignedByPlayerId")
                         .IsRequired()
                         .HasColumnType("nvarchar(450)");
+
+                    b.Property<bool>("IsDraft")
+                        .HasColumnType("bit");
 
                     b.Property<string>("Name")
                         .IsRequired()

@@ -88,6 +88,7 @@ jobs:
           client-id: ${{ secrets.AZURE_CLIENT_ID }}
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          enable-AzPSSession: true
 
       # Asked of Azure rather than assumed: a web app created in the portal with "unique default hostname" on gets
       # <name>-<hash>.<region>-01.azurewebsites.net, not <name>.azurewebsites.net.

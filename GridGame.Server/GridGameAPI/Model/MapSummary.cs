@@ -13,5 +13,7 @@ namespace GridGameAPI.Model
         public int ActionsPerTurn { get; set; }
 
         public required string DesignedByUserName { get; set; }
+
+        public bool IsDraft { get; set; }
     }
 }

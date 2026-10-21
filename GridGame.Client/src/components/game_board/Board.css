@@ -6,6 +6,11 @@
 	--player-4: #dc9a2e;
 	--player-5: #9b5de5;
 	--player-6: #16a6a6;
+
+	/* Move glyphs: white strokes on a dark casing, so they read on every tile colour. Shared with the move legend */
+	--glyph-spawn: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke-linecap='round'%3E%3Cpath d='M12 6v12M6 12h12' stroke='%23000' stroke-opacity='.55' stroke-width='5'/%3E%3Cpath d='M12 6v12M6 12h12' stroke='%23fff' stroke-width='2.5'/%3E%3C/svg%3E");
+	--glyph-jump: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M4 19Q12 1 20 19M21.2 13.1L20 19L14.9 15.9' stroke='%23000' stroke-opacity='.6' stroke-width='6'/%3E%3Cpath d='M4 19Q12 1 20 19M21.2 13.1L20 19L14.9 15.9' stroke='%23fff' stroke-width='3'/%3E%3C/svg%3E");
+	--glyph-dies: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke-linecap='round'%3E%3Cpath d='M7 7l10 10M17 7L7 17' stroke='%23000' stroke-opacity='.55' stroke-width='5'/%3E%3Cpath d='M7 7l10 10M17 7L7 17' stroke='%23fff' stroke-width='2.5'/%3E%3C/svg%3E");
 }
 
 .board {
@@ -22,7 +27,8 @@
 	grid-template-columns: repeat(var(--columns), var(--tile-size));
 	width: max-content;
 	margin: 24px auto;
-	padding: 12px;
+	--board-padding: 12px;
+	padding: var(--board-padding);
 	background: var(--board-bg);
 	border-radius: 16px;
 	box-shadow: var(--shadow);
@@ -141,39 +147,159 @@
 
 .tile--spawn,
 .tile--jump,
-.tile--jump-origin {
+.tile--jump-origin,
+.tile--jump-landing {
 	cursor: pointer;
 }
 
-/* A pseudo-element overlay, rather than the tile's own background/box-shadow, so the highlight reads clearly
-   whether it's sitting on empty ground or over an enemy's colour, without covering up which player owns it */
+/* Pseudo-element overlays, rather than the tile's own background/box-shadow, so a highlight sits on top of empty
+   ground and enemy colours alike without hiding who owns the tile. ::after carries this player's own move hints
+   (and the history viewer's marks), ::before what opponents could do - so the two can show at once.
+
+   Hue alone isn't enough: every hint colour sits close to some player's colour (spawn green vs player 3, jump amber
+   vs player 4, jump-origin red vs player 1), and play-testing showed a red-on-red highlight goes unnoticed. So each
+   hint pairs its colour with a white inner ring, which contrasts with every player colour, and a glyph that tells
+   the move types apart without relying on colour at all */
 .tile--spawn::after,
 .tile--jump::after,
-.tile--jump-origin::after {
+.tile--jump-origin::after,
+.tile--jump-landing::after,
+.tile--history-origin::after,
+.tile--history-landing::after,
+.tile--opponent-spawn::before,
+.tile--opponent-jump::before {
 	content: '';
 	position: absolute;
-	inset: 0;
 	border-radius: inherit;
 	pointer-events: none;
 }
 
-.tile--spawn::after {
-	box-shadow: inset 0 0 0 3px var(--spawn-hint);
-	background: color-mix(in srgb, var(--spawn-hint) 30%, transparent);
+.tile--spawn::after,
+.tile--jump::after,
+.tile--jump-origin::after,
+.tile--jump-landing::after,
+.tile--history-origin::after,
+.tile--history-landing::after {
+	inset: 0;
+	background-repeat: no-repeat;
+	background-position: center;
+	background-size: 60%;
 }
 
+/* "+": a new tile appears here */
+.tile--spawn::after {
+	box-shadow: inset 0 0 0 3px var(--spawn-hint), inset 0 0 0 5px rgba(255, 255, 255, 0.85);
+	background-color: color-mix(in srgb, var(--spawn-hint) 22%, transparent);
+	background-image: var(--glyph-spawn);
+}
+
+/* Arcing arrow: a leap over whatever is in between */
 .tile--jump::after {
-	box-shadow: inset 0 0 0 3px var(--jump-hint);
-	background: color-mix(in srgb, var(--jump-hint) 30%, transparent);
+	box-shadow: inset 0 0 0 3px var(--jump-hint), inset 0 0 0 5px rgba(255, 255, 255, 0.85);
+	background-color: color-mix(in srgb, var(--jump-hint) 22%, transparent);
+	background-image: var(--glyph-jump);
+}
+
+/* Choosing which tile to jump from. Everything else on the board is dimmed, arrows run from each candidate to the
+   landing tile, and the candidates get a black-and-white ring that stands out on every colour */
+.board--choosing .tile:not(.tile--jump-origin):not(.tile--jump-landing) {
+	opacity: 0.3;
+}
+
+.tile--jump-origin,
+.tile--jump-landing {
+	z-index: 1;
 }
 
 .tile--jump-origin::after {
-	box-shadow: inset 0 0 0 3px var(--jump-origin-hint);
-	background: color-mix(in srgb, var(--jump-origin-hint) 30%, transparent);
-	animation: jump-origin-pulse 900ms ease-in-out infinite;
+	box-shadow: inset 0 0 0 3px #fff, inset 0 0 0 6px rgba(0, 0, 0, 0.8);
+	background-image: radial-gradient(circle, #fff 0 5px, rgba(0, 0, 0, 0.8) 5.5px 7.5px, transparent 8px);
+	background-size: 100%;
 }
 
-@keyframes jump-origin-pulse {
-	0%, 100% { opacity: 1; }
-	50% { opacity: 0.45; }
+.tile--jump-origin:hover::after {
+	box-shadow: inset 0 0 0 4px #fff, inset 0 0 0 8px rgba(0, 0, 0, 0.85);
+}
+
+.tile--jump-landing::after {
+	box-shadow: inset 0 0 0 3px var(--jump-hint), inset 0 0 0 6px #fff;
+	background-color: color-mix(in srgb, var(--jump-hint) 30%, transparent);
+	animation: jump-landing-pulse 1100ms ease-in-out infinite;
+}
+
+@keyframes jump-landing-pulse {
+	0%, 100% { transform: scale(1); }
+	50% { transform: scale(0.82); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.tile--jump-landing::after {
+		animation: none;
+	}
+}
+
+.board {
+	position: relative;
+}
+
+.board__arrows {
+	position: absolute;
+	top: var(--board-padding);
+	left: var(--board-padding);
+	width: calc(100% - 2 * var(--board-padding));
+	height: calc(100% - 2 * var(--board-padding));
+	pointer-events: none;
+	z-index: 3;
+	overflow: visible;
+}
+
+.board__arrow-casing {
+	stroke: rgba(0, 0, 0, 0.75);
+	stroke-width: 0.2;
+	stroke-linecap: round;
+}
+
+.board__arrow-line {
+	stroke: #fff;
+	stroke-width: 0.09;
+	stroke-linecap: round;
+}
+
+.board__arrow-head {
+	fill: #fff;
+	stroke: rgba(0, 0, 0, 0.75);
+	stroke-width: 1.2;
+}
+
+/* What an opponent could do here with their next action, ringed in their colour (or the text colour when more
+   than one opponent could). Round, so it never reads as one of this player's own square hints. A spawn gets a thin
+   dotted ring - it's the expected fringe around their territory - and a jump a heavy solid one: jumps are the move
+   that crosses walls, so they're the ones that catch people out. The halo in the board's own colour keeps the ring
+   separate from whatever tile colour it sits on */
+.tile--opponent-spawn::before,
+.tile--opponent-jump::before {
+	inset: 7px;
+	border-radius: 50%;
+	--ring: var(--opponent, var(--text-h));
+}
+
+.tile--opponent-spawn::before {
+	border: 2px dotted var(--ring);
+	opacity: 0.85;
+}
+
+.tile--opponent-jump::before {
+	inset: 6px;
+	border: 4px solid var(--ring);
+	box-shadow: 0 0 0 2px var(--board-bg), inset 0 0 0 2px var(--board-bg);
+}
+
+/* Stepping through the move history: the tile an action landed on, and the tile a jump left from (now dead) */
+.tile--history-landing::after {
+	box-shadow: inset 0 0 0 3px var(--accent), inset 0 0 0 6px #fff;
+}
+
+.tile--history-origin::after {
+	box-shadow: inset 0 0 0 3px var(--accent);
+	background-image: var(--glyph-dies);
 }

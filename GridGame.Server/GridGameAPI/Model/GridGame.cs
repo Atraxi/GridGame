@@ -37,5 +37,11 @@ namespace GridGameAPI.Model
         /// meta score stats are a named-account-only feature, served only via GamesController.GetFinalScores</summary>
         [JsonIgnore]
         public int[]? FinalScores { get; set; }
+
+        /// <summary>Every action taken in this game, oldest first (see GameAction). Persisted along with the rest of
+        /// the game, so it can never disagree with the board. JsonIgnore'd for the same reason as FinalScores: move
+        /// history is a named-account feature, served only via GamesController.GetMoveHistory</summary>
+        [JsonIgnore]
+        public List<GameAction> MoveLog { get; set; } = [];
     }
 }

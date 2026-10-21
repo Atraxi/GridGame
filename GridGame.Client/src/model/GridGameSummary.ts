@@ -3,4 +3,5 @@ export type GameSummary = {
 	creationDate: string
 	name: string
 	turnNumber: number
+	isGameOver: boolean
 }

@@ -46,6 +46,8 @@
 
 .map-editor__workspace {
 	display: flex;
+	/* The palette drops below the board on a narrow screen rather than pushing the page sideways */
+	flex-wrap: wrap;
 	align-items: flex-start;
 	gap: 20px;
 	/* Buttons are held down and dragged across for painting - text selection just gets in the way */
@@ -102,4 +104,22 @@
 	height: 24px;
 	cursor: inherit;
 	pointer-events: none;
+}
+
+.map-editor__note {
+	margin-bottom: 12px;
+	font-style: italic;
+}
+
+.map-editor__actions {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 10px 12px;
+	margin-top: 8px;
+}
+
+.map-editor__status {
+	font-size: 14px;
+	color: var(--text);
 }

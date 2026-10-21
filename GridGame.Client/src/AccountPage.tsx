@@ -34,7 +34,18 @@ export default function AccountPage() {
 			{maps.length === 0
 				? <p>No maps yet.</p>
 				: <ul className="account-page__maps">
-					{maps.map(map => <li key={map.id}>{map.name}</li>)}
+					{maps.map(map => (
+						<li key={map.id}>
+							<span className="account-page__map-name">
+								{map.name}
+								{map.isDraft && <span className="account-page__badge" title="Only you can see a draft, and games can't be hosted from it until it's published">Draft</span>}
+							</span>
+							<span className="account-page__map-links">
+								<Link to={`/maps/${map.id}/edit`}>Edit</Link>
+								<Link to={`/maps/create?from=${map.id}`}>Clone</Link>
+							</span>
+						</li>
+					))}
 				</ul>}
 
 			{!guest && <>

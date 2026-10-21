@@ -1,0 +1,62 @@
+.game-list {
+	max-width: 760px;
+	margin: 16px auto;
+	padding: 0 16px;
+	box-sizing: border-box;
+	width: 100%;
+}
+
+/* The table keeps its natural width and scrolls on its own, rather than pushing the whole page sideways on a phone */
+.game-list__scroll {
+	overflow-x: auto;
+}
+
+.game-list table {
+	border-collapse: collapse;
+	width: 100%;
+	font-size: 15px;
+}
+
+.game-list th,
+.game-list td {
+	padding: 6px 10px;
+	border-bottom: 1px solid var(--border);
+	text-align: left;
+	white-space: nowrap;
+}
+
+.game-list th {
+	color: var(--text-h);
+	font-weight: 500;
+}
+
+.game-list .game-list__name {
+	white-space: normal;
+	overflow-wrap: anywhere;
+	min-width: 120px;
+	color: var(--text-h);
+}
+
+/* On a phone the game itself is the part worth the width - when it was created can go */
+@media (max-width: 520px) {
+	.game-list .game-list__created {
+		display: none;
+	}
+}
+
+.game-list__pages {
+	display: flex;
+	justify-content: center;
+	gap: 12px;
+	margin-top: 16px;
+}
+
+.game-list__pages button:disabled {
+	opacity: 0.4;
+	cursor: default;
+}
+
+.game-list__error {
+	color: #d8532e;
+	margin-bottom: 8px;
+}

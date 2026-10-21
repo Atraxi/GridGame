@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState, type CSSProperties } from "react"
-import { Link, useNavigate } from "react-router"
+import { Link, useBlocker, useLoaderData, useLocation, useNavigate } from "react-router"
 import Tile, { UNCLAIMED, DEAD } from "./components/game_board/Tile"
 import "./components/game_board/Board.css"
 import { authorizedFetch, isGuest } from "./auth"
+import type { MapEditorSource } from "./loaders"
 import "./CreateMapPage.css"
 
 const DEFAULT_WIDTH = 10
@@ -31,19 +32,61 @@ const paletteEntries = (playerCount: number) => [
 	...Array.from({ length: playerCount }, (_, index) => ({ value: index + 1, label: `Player ${index + 1}` })),
 ]
 
-export default function CreateMapPage() {
+type Design = { name: string, playerCount: number, actionsPerTurn: number, board: number[][] }
+
+/** What the editor starts from: a blank board, one of the player's own maps to edit, or any published map to copy */
+function initialDesign(source: MapEditorSource): Design {
+	if (!source.map) {
+		return { name: '', playerCount: 2, actionsPerTurn: 3, board: makeBoard(DEFAULT_HEIGHT, DEFAULT_WIDTH) }
+	}
+	return {
+		name: source.mode === 'clone' ? `${source.map.name} (copy)` : source.map.name,
+		playerCount: source.map.playerCount,
+		actionsPerTurn: source.map.actionsPerTurn,
+		board: source.map.startingBoard,
+	}
+}
+
+//Compared rather than tracked edit by edit, so undoing a change by hand also clears the unsaved-changes warning
+const snapshotOf = (design: Design) => JSON.stringify(design)
+
+/** Keyed on the URL so that moving between maps (or from a blank board to a clone) starts the editor afresh rather
+ * than carrying over the previous map's state - React Router keeps a component mounted across a search change */
+export default function MapEditorRoute() {
+	const location = useLocation()
+	return <CreateMapPage key={location.pathname + location.search} />
+}
+
+function CreateMapPage() {
+	const source = useLoaderData<MapEditorSource>()
 	const navigate = useNavigate()
-	const [name, setName] = useState('')
-	const [playerCount, setPlayerCount] = useState(2)
-	const [actionsPerTurn, setActionsPerTurn] = useState(3)
-	const [width, setWidth] = useState(DEFAULT_WIDTH)
-	const [height, setHeight] = useState(DEFAULT_HEIGHT)
-	const [board, setBoard] = useState(() => makeBoard(DEFAULT_HEIGHT, DEFAULT_WIDTH))
+	const location = useLocation()
+	const [initial] = useState(() => initialDesign(source))
+	//Only an existing map being edited has an id - a clone saves as a brand new map
+	const mapId = source.mode === 'edit' ? source.map.id : null
+	const [name, setName] = useState(initial.name)
+	const [playerCount, setPlayerCount] = useState(initial.playerCount)
+	const [actionsPerTurn, setActionsPerTurn] = useState(initial.actionsPerTurn)
+	const [width, setWidth] = useState(initial.board[0]?.length ?? DEFAULT_WIDTH)
+	const [height, setHeight] = useState(initial.board.length)
+	const [board, setBoard] = useState(initial.board)
+	//A new map or a clone starts life as a draft until it's published
+	const [isDraft, setIsDraft] = useState(source.mode === 'edit' ? source.map.isDraft : true)
+	const [savedSnapshot, setSavedSnapshot] = useState(() => source.mode === 'edit' ? snapshotOf(initial) : null)
 	const [error, setError] = useState<string | null>(null)
+	//Carried across the redirect from a new map's first save to its edit page, which remounts the editor
+	const [notice, setNotice] = useState<string | null>((location.state as { notice?: string } | null)?.notice ?? null)
 	const [saving, setSaving] = useState(false)
 	const [selectedTile, setSelectedTile] = useState(1)
 	//A ref, not state - toggled on every pointer move while painting, and doesn't need to trigger a re-render
 	const isPainting = useRef(false)
+
+	//A blank board counts as unsaved only once something has been changed on it
+	const dirty = snapshotOf({ name, playerCount, actionsPerTurn, board }) !== (savedSnapshot ?? snapshotOf(initial))
+	//Read by the navigation blocker, which is consulted at navigation time - after a save, that's before the
+	//re-render that would otherwise have told it the changes are saved
+	const dirtyRef = useRef(dirty)
+	useEffect(() => { dirtyRef.current = dirty }, [dirty])
 
 	//Catches a mouseup that happens after the pointer has been dragged off the board entirely
 	useEffect(() => {
@@ -51,6 +94,29 @@ export default function CreateMapPage() {
 		window.addEventListener('mouseup', stopPainting)
 		return () => window.removeEventListener('mouseup', stopPainting)
 	}, [])
+
+	//Closing the tab or reloading with unsaved changes gets the browser's own "leave site?" prompt...
+	useEffect(() => {
+		if (!dirty) {
+			return
+		}
+		const warn = (event: BeforeUnloadEvent) => event.preventDefault()
+		window.addEventListener('beforeunload', warn)
+		return () => window.removeEventListener('beforeunload', warn)
+	}, [dirty])
+
+	//...and navigating away within the app gets an equivalent one
+	const blocker = useBlocker(({ currentLocation, nextLocation }) =>
+		dirtyRef.current && currentLocation.pathname + currentLocation.search !== nextLocation.pathname + nextLocation.search)
+	useEffect(() => {
+		if (blocker.state === 'blocked') {
+			if (window.confirm('This map has unsaved changes. Leave without saving them?')) {
+				blocker.proceed()
+			} else {
+				blocker.reset()
+			}
+		}
+	}, [blocker])
 
 	if (isGuest()) {
 		return (
@@ -60,6 +126,8 @@ export default function CreateMapPage() {
 			</section>
 		)
 	}
+
+	const maxSize = Math.max(MAX_SIZE, initial.board.length, initial.board[0]?.length ?? 0)
 
 	const updateSize = (newHeight: number, newWidth: number) => {
 		setHeight(newHeight)
@@ -95,30 +163,57 @@ export default function CreateMapPage() {
 		}
 	}
 
-	const submit = () => {
+	/** Drafts skip the server's playability checks, so an unfinished map can be saved and come back to later */
+	const save = (asDraft: boolean) => {
+		const design = { name, playerCount, actionsPerTurn, board }
 		setSaving(true)
 		setError(null)
-		authorizedFetch('/Maps/Create', {
+		setNotice(null)
+		authorizedFetch(mapId == null ? '/Maps/Create' : `/Maps/Update?mapId=${mapId}`, {
 			method: 'POST',
-			body: JSON.stringify({ name, playerCount, actionsPerTurn, startingBoard: board }),
+			body: JSON.stringify({ name, playerCount, actionsPerTurn, startingBoard: board, isDraft: asDraft }),
 		})
 			.then(async response => {
 				if (!response.ok) {
 					throw new Error(await response.text())
 				}
-				navigate('/account')
+				const savedId = (await response.json()) as number
+				dirtyRef.current = false
+				setSavedSnapshot(snapshotOf(design))
+				setIsDraft(asDraft)
+				if (!asDraft) {
+					navigate('/account')
+				} else if (mapId == null) {
+					//From here on, saving updates this draft rather than creating another one
+					navigate(`/maps/${savedId}/edit`, { replace: true, state: { notice: 'Draft saved.' } })
+				} else {
+					setNotice('Draft saved.')
+				}
 			})
 			.catch(err => setError(err.message))
 			.finally(() => setSaving(false))
 	}
 
+	const heading = source.mode === 'edit' ? 'Edit map' : source.mode === 'clone' ? 'Clone a map' : 'Create a map'
+
 	return (
 		<section className="map-editor">
-			<h1>Create a map</h1>
+			<h1>{heading}</h1>
+			{source.mode === 'clone' && (
+				<p className="map-editor__note">
+					Starting from "{source.map.name}"{source.map.designedByUserName && ` by ${source.map.designedByUserName}`}.
+					Saving creates a new map of your own - the original isn't changed.
+				</p>
+			)}
+			{source.mode === 'edit' && !isDraft && (
+				<p className="map-editor__note">
+					This map is published. Games already hosted from it keep the board they started with.
+				</p>
+			)}
 
 			<label className="map-editor__field map-editor__field--name">
 				Map name
-				<input value={name} onChange={event => setName(event.target.value)} />
+				<input value={name} maxLength={100} onChange={event => setName(event.target.value)} />
 			</label>
 
 			<div className="map-editor__settings">
@@ -139,21 +234,24 @@ export default function CreateMapPage() {
 				<label className="map-editor__field">
 					Width
 					<input
-						type="number" min={MIN_SIZE} max={MAX_SIZE} value={width}
-						onChange={event => updateSize(height, clamp(Number(event.target.value), MIN_SIZE, MAX_SIZE))}
+						type="number" min={MIN_SIZE} max={maxSize} value={width}
+						onChange={event => updateSize(height, clamp(Number(event.target.value), MIN_SIZE, maxSize))}
 					/>
 				</label>
 				<label className="map-editor__field">
 					Height
 					<input
-						type="number" min={MIN_SIZE} max={MAX_SIZE} value={height}
-						onChange={event => updateSize(clamp(Number(event.target.value), MIN_SIZE, MAX_SIZE), width)}
+						type="number" min={MIN_SIZE} max={maxSize} value={height}
+						onChange={event => updateSize(clamp(Number(event.target.value), MIN_SIZE, maxSize), width)}
 					/>
 				</label>
 			</div>
 
 			<p>Pick a tile type from the palette, then click or drag across the board to paint it.</p>
-			<p>Every player needs at least one starting tile, and every player must be reachable from every other player's territory.</p>
+			<p>
+				To publish, every player needs at least one starting tile, and every player must be reachable from every
+				other player's territory. Not finished? Save it as a draft and come back to it from your account page.
+			</p>
 
 			<div className="map-editor__workspace">
 				<div
@@ -194,9 +292,17 @@ export default function CreateMapPage() {
 				</div>
 			</div>
 
-			<button onClick={submit} disabled={saving || !name.trim()}>
-				{saving ? 'Saving...' : 'Save map'}
-			</button>
+			<div className="map-editor__actions">
+				<button type="button" onClick={() => save(true)} disabled={saving}>
+					{isDraft ? 'Save draft' : 'Unpublish and save as draft'}
+				</button>
+				<button type="button" onClick={() => save(false)} disabled={saving || !name.trim()}>
+					{saving ? 'Saving...' : isDraft ? 'Publish map' : 'Save changes'}
+				</button>
+				<span className="map-editor__status" aria-live="polite">
+					{dirty ? 'Unsaved changes' : notice}
+				</span>
+			</div>
 			{error && <p className="map-editor__error">{error}</p>}
 		</section>
 	)

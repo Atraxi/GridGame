@@ -14,6 +14,39 @@
 	gap: 6px;
 }
 
+.account-page__maps li {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: baseline;
+	justify-content: space-between;
+	gap: 4px 12px;
+	padding: 4px 0;
+	border-bottom: 1px solid var(--border);
+}
+
+.account-page__map-name {
+	min-width: 0;
+	overflow-wrap: anywhere;
+	color: var(--text-h);
+}
+
+.account-page__map-links {
+	display: flex;
+	gap: 12px;
+	font-size: 15px;
+}
+
+.account-page__badge {
+	display: inline-block;
+	margin-left: 8px;
+	padding: 0 6px;
+	border-radius: 4px;
+	font-size: 12px;
+	vertical-align: middle;
+	color: var(--accent);
+	background: var(--accent-bg);
+}
+
 .account-page__actions {
 	display: flex;
 	flex-wrap: wrap;

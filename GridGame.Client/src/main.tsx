@@ -5,13 +5,13 @@ import App from './App.tsx'
 import Layout from './Layout.tsx'
 import LoginPage from './LoginPage.tsx'
 import AccountPage from './AccountPage.tsx'
-import CreateMapPage from './CreateMapPage.tsx'
+import MapEditorRoute from './CreateMapPage.tsx'
 import { createBrowserRouter, RouterProvider } from 'react-router';
 import GridGamePage from './GridGame.tsx';
-import { loadJson } from './loaders.ts';
+import { loadJson, loadMapToEdit, loadNewMap } from './loaders.ts';
 import RouteError from './RouteError.tsx';
 
-let router = createBrowserRouter([
+const router = createBrowserRouter([
   {
     Component: Layout,
     children: [
@@ -46,7 +46,13 @@ let router = createBrowserRouter([
           },
           {
             path: "maps/create",
-            Component: CreateMapPage,
+            Component: MapEditorRoute,
+            loader: loadNewMap,
+          },
+          {
+            path: "maps/:mapId/edit",
+            Component: MapEditorRoute,
+            loader: loadMapToEdit,
           },
         ],
       },

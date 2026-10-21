@@ -32,6 +32,7 @@ builder.Services.AddIdentity<Player, IdentityRole>(options =>
 }).AddEntityFrameworkStores<GameContext>();
 
 builder.Services.AddSingleton<GameSessionManager>();
+builder.Services.AddSingleton<GameListVersion>();
 builder.Services.AddScoped<JwtManager>();
 builder.Services.AddScoped<RefreshTokenManager>();
 builder.Services.AddSingleton<GuestCleanup>();

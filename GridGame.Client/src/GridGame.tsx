@@ -1,17 +1,18 @@
-import { useEffect, useRef, useState } from "react";
-import Board from "./components/game_board/Board";
+import { useEffect, useMemo, useRef, useState } from "react";
+import Board, { type JumpChoice, type MarkedCell } from "./components/game_board/Board";
 import GameAnalysis from "./components/GameAnalysis";
+import MoveHistory from "./components/MoveHistory";
 import * as signalR from '@microsoft/signalr';
 import { useLoaderData, useNavigate } from "react-router";
 import type { GridGame } from "./model/GridGame";
 import type { BoardAnalysis, FinalResults } from "./model/analysis";
 import { computeStateHash } from "./model/stateHash";
+import { actionFromPush, boardAfter, type GameAction, type MoveHistory as MoveHistoryResponse } from "./model/history";
 import { authorizedFetch, ensureToken, getTokenExpiryMs, isGuest, SessionExpiredError } from "./auth";
 import { loginRedirectPath } from "./loaders";
 import "./GridGame.css";
 
 type TileUpdate = { x: number, y: number, newTileValue: number }
-type JumpChoice = { x: number, y: number, origins: { x: number, y: number }[] }
 /** One state change, pushed to everyone in the game. The hashes let a client check it's applying this on top of
  * the same state the server did (see StateHash.cs), and requiresAck marks a turn end the server wants confirmed */
 type StatePush = {
@@ -49,6 +50,17 @@ const REJECTION_MESSAGES: Record<MoveRejected['reason'], string> = {
     gameOver: "This game has already ended.",
 }
 
+const SHOW_OPPONENT_MOVES_KEY = 'gridgame.showOpponentMoves'
+
+//A per-browser preference, so storage being unavailable (private mode, blocked site data) just means the default
+const readShowOpponentMoves = () => {
+    try {
+        return localStorage.getItem(SHOW_OPPONENT_MOVES_KEY) !== 'false'
+    } catch {
+        return true
+    }
+}
+
 const playerLabel = (entry: PresenceEntry) =>
     `Player ${entry.playerNumber}${entry.userName && !entry.userName.startsWith('Guest-') ? ` (${entry.userName})` : ''}`
 
@@ -67,6 +79,15 @@ export default function GridGamePage() {
     //there's nothing to gate client-side
     const [analysis, setAnalysis] = useState<BoardAnalysis | null>(null)
     const [showTerritory, setShowTerritory] = useState(true)
+    const [showOpponentMoves, setShowOpponentMoves] = useState(readShowOpponentMoves)
+    //Move history is a named-account feature, fetched the first time its panel is opened and then kept up to date
+    //from the same pushes that update the board. Null until loaded, and again whenever a resync means the loaded
+    //copy can no longer be trusted to line up with the board
+    const [historyOpen, setHistoryOpen] = useState(false)
+    const [history, setHistory] = useState<GameAction[] | null>(null)
+    const [historyError, setHistoryError] = useState<string | null>(null)
+    //How many actions the board on screen has had applied while stepping through the history; null shows live play
+    const [historyPosition, setHistoryPosition] = useState<number | null>(null)
 
     //The authoritative client-side copy of the game, and its hash. Kept in refs rather than derived from React state
     //because pushes have to be checked and applied strictly in arrival order, synchronously - React state updates
@@ -138,6 +159,10 @@ export default function GridGamePage() {
             }
             commit(next)
             setInformallyDecidedFor(push.informallyDecidedFor)
+            const action = actionFromPush(previous, push.updates, push.resignedPlayerNumber)
+            if (action) {
+                setHistory(current => current && [...current, action])
+            }
             return 'applied'
         }
 
@@ -155,6 +180,11 @@ export default function GridGamePage() {
                 const snapshot = await hub.invoke<Snapshot | null>("getGameState")
                 if (!snapshot || cancelled) {
                     return
+                }
+                if (snapshot.stateHash !== hashRef.current) {
+                    //Whatever was missed isn't in the loaded history either, so it's dropped and fetched afresh
+                    setHistory(null)
+                    setHistoryPosition(null)
                 }
                 commit({
                     ...modelRef.current,
@@ -338,8 +368,81 @@ export default function GridGamePage() {
         }
     }, [])
 
+    useEffect(() => {
+        if (!historyOpen || history !== null || isGuest()) {
+            return
+        }
+        let cancelled = false
+        let retryTimer: ReturnType<typeof setTimeout> | null = null
+        let attempts = 0
+        const load = async () => {
+            try {
+                const response = await authorizedFetch(`/Games/GetMoveHistory?gameId=${initialState.id}`)
+                if (!response.ok) {
+                    throw new Error(`Request failed: ${response.status}`)
+                }
+                const loaded = (await response.json()) as MoveHistoryResponse
+                if (cancelled) {
+                    return
+                }
+                //The history is replayed backwards from this client's board, so it has to describe exactly that
+                //board - a move landing while the request was in flight means asking again
+                if (loaded.stateHash === hashRef.current) {
+                    setHistory(loaded.actions)
+                    setHistoryError(null)
+                } else if (++attempts < 5) {
+                    retryTimer = setTimeout(load, 1000)
+                } else {
+                    setHistoryError("The history couldn't be lined up with the board - close and reopen it to try again.")
+                }
+            } catch (error) {
+                if (!cancelled) {
+                    setHistoryError(`Couldn't load the move history: ${error instanceof Error ? error.message : error}`)
+                }
+            }
+        }
+        load()
+        return () => {
+            cancelled = true
+            if (retryTimer) {
+                clearTimeout(retryTimer)
+            }
+        }
+    }, [historyOpen, history, initialState.id])
+
+    const viewingHistory = history != null && historyPosition != null
+    const shownBoard = useMemo(
+        () => history != null && historyPosition != null
+            ? boardAfter(gameState.gameBoard, history, historyPosition)
+            : gameState.gameBoard,
+        [gameState.gameBoard, history, historyPosition])
+    const historyMarks = useMemo((): MarkedCell[] | undefined => {
+        const action = history != null && historyPosition != null && historyPosition > 0 ? history[historyPosition - 1] : null
+        if (!action || action.kind === 'resign') {
+            return undefined
+        }
+        const marks: MarkedCell[] = [{ x: action.x, y: action.y, mark: 'landing' }]
+        if (action.originX != null && action.originY != null) {
+            marks.push({ x: action.originX, y: action.originY, mark: 'origin' })
+        }
+        return marks
+    }, [history, historyPosition])
+
+    const changeHistoryPosition = (position: number | null) => {
+        setJumpChoice(null)
+        setHistoryPosition(position)
+    }
+
+    const toggleHistory = (open: boolean) => {
+        setHistoryOpen(open)
+        if (!open) {
+            setHistoryPosition(null)
+        }
+    }
+
     const onTileClicked = (x: number, y: number) => () => {
-        if (!connection || gameState.isGameOver) {
+        //A past board is only for looking at
+        if (!connection || gameState.isGameOver || viewingHistory) {
             return
         }
         if (jumpChoice) {
@@ -357,6 +460,29 @@ export default function GridGamePage() {
         return connection.invoke("requestMove", x, y)
     }
 
+    //Escape backs out of choosing a jump origin, same as clicking anywhere else on the board
+    useEffect(() => {
+        if (!jumpChoice) {
+            return
+        }
+        const onKeyDown = (event: KeyboardEvent) => {
+            if (event.key === 'Escape') {
+                setJumpChoice(null)
+            }
+        }
+        window.addEventListener('keydown', onKeyDown)
+        return () => window.removeEventListener('keydown', onKeyDown)
+    }, [jumpChoice])
+
+    const toggleOpponentMoves = (show: boolean) => {
+        setShowOpponentMoves(show)
+        try {
+            localStorage.setItem(SHOW_OPPONENT_MOVES_KEY, String(show))
+        } catch {
+            //Only a remembered preference - fine to lose
+        }
+    }
+
     const resign = () => {
         if (connection && window.confirm('Resign and end the game for everyone? Scores are settled as the board stands.')) {
             connection.invoke("resign").catch(() => setStatusMessage("Couldn't resign - check your connection and try again."))
@@ -368,6 +494,8 @@ export default function GridGamePage() {
     //Offered to anyone seated other than the player it's decided for - only a hint, the server allows it any time
     const canResign = !gameState.isGameOver && myPlayerNumber != null && myPlayerNumber > 0 &&
         informallyDecidedFor != null && informallyDecidedFor !== myPlayerNumber
+    const isSeated = myPlayerNumber != null && myPlayerNumber > 0
+    const opponentMovesShown = isSeated && showOpponentMoves && !gameState.isGameOver
 
     return (
         <>
@@ -400,12 +528,25 @@ export default function GridGamePage() {
                     <button type="button" onClick={resign}>Resign</button>
                 </p>
             )}
-            {isMyTurn && <p className="move-legend">
-                <span><span className="move-legend__swatch move-legend__swatch--spawn" />Spawn target</span>
-                <span><span className="move-legend__swatch move-legend__swatch--jump" />Jump target</span>
+            {(isMyTurn || opponentMovesShown) && !jumpChoice && !viewingHistory && <p className="move-legend">
+                {isMyTurn && <>
+                    <span><span className="move-legend__swatch move-legend__swatch--spawn" />You can spawn</span>
+                    <span><span className="move-legend__swatch move-legend__swatch--jump" />You can jump</span>
+                </>}
+                {opponentMovesShown && <>
+                    <span><span className="move-legend__swatch move-legend__swatch--opponent-spawn" />Opponent can spawn</span>
+                    <span><span className="move-legend__swatch move-legend__swatch--opponent-jump" />Opponent can jump</span>
+                </>}
             </p>}
-            {jumpChoice && <p>More than one tile can jump there - click the highlighted tile you want to jump from.</p>}
             {statusMessage && <p>{statusMessage}</p>}
+            {isSeated && !gameState.isGameOver && (
+                <p className="territory-toggle">
+                    <label>
+                        <input type="checkbox" checked={showOpponentMoves} onChange={event => toggleOpponentMoves(event.target.checked)} />
+                        Show where opponents could move next (rings in their colour: dotted to spawn, solid to jump - jumps can cross walls)
+                    </label>
+                </p>
+            )}
             {analysis && !gameState.isGameOver && (
                 <p className="territory-toggle">
                     <label>
@@ -414,13 +555,48 @@ export default function GridGamePage() {
                     </label>
                 </p>
             )}
+            {viewingHistory && (
+                <div className="history-banner">
+                    <p>
+                        <strong>Replaying the move history</strong> - this is the board after action {historyPosition} of
+                        {' '}{history.length}. Moves can't be made until you go back to the live board.
+                    </p>
+                    <button type="button" onClick={() => changeHistoryPosition(null)}>Back to live</button>
+                </div>
+            )}
+            {jumpChoice && !viewingHistory && (
+                <div className="jump-choice" role="alert">
+                    <p>
+                        <strong>Pick the tile to jump from.</strong> {jumpChoice.origins.length} of your tiles can
+                        jump there - the arrows show each one. The tile you jump from dies.
+                    </p>
+                    <button type="button" onClick={() => setJumpChoice(null)}>Cancel</button>
+                </div>
+            )}
             <Board
-                gameState={gameState}
-                myPlayerNumber={isMyTurn ? myPlayerNumber : null}
-                jumpChoice={jumpChoice}
-                analysis={showTerritory && !gameState.isGameOver ? analysis : null}
+                board={shownBoard}
+                playerCount={gameState.playerCount}
+                movesFor={isMyTurn && !viewingHistory ? myPlayerNumber : null}
+                opponentsOf={opponentMovesShown && !viewingHistory ? myPlayerNumber : null}
+                jumpChoice={viewingHistory ? null : jumpChoice}
+                //The analysis describes the live board, so it would be misleading over a past one
+                analysis={showTerritory && !gameState.isGameOver && !viewingHistory ? analysis : null}
+                historyMarks={historyMarks}
                 onTileClicked={onTileClicked}
             />
+            {isGuest()
+                ? <p className="score-prediction">Create a named account to see and replay the move history.</p>
+                : <details className="history-panel" open={historyOpen} onToggle={event => toggleHistory(event.currentTarget.open)}>
+                    <summary>Move history</summary>
+                    {history
+                        ? <MoveHistory
+                            actions={history}
+                            position={historyPosition}
+                            onPositionChange={changeHistoryPosition}
+                            currentTurnNumber={gameState.turnNumber}
+                        />
+                        : <p className="score-prediction">{historyError ?? 'Loading the move history...'}</p>}
+                </details>}
             {!gameState.isGameOver && (analysis
                 ? <GameAnalysis analysis={analysis} myPlayerNumber={myPlayerNumber} />
                 : isGuest() && <p className="score-prediction">Create a named account to see live board analysis.</p>)}

@@ -15,7 +15,7 @@ const inBounds = (board: number[][], row: number, column: number) =>
 //Mirrors GridGameMoves.cs so the client can preview legal moves before asking the server to apply one
 export function moveHintFor(board: number[][], player: number, row: number, column: number): MoveHint | undefined {
 	const owner = board[row]?.[column]
-	if (owner === undefined || owner === DEAD || owner === player) {
+	if (player <= 0 || owner === undefined || owner === DEAD || owner === player) {
 		return undefined
 	}
 
@@ -26,4 +26,28 @@ export function moveHintFor(board: number[][], player: number, row: number, colu
 		return 'jump'
 	}
 	return undefined
+}
+
+/** What an opponent could do to a tile with a single action. `player` is null when more than one opponent can */
+export type OpponentMove = { kind: MoveHint, player: number | null }
+
+/** Every tile some opponent of `me` could spawn or jump onto with their next single action - the same rules as
+ * moveHintFor, from each opponent's side. A spawn outranks a jump, since it costs the opponent no tile */
+export function opponentMoves(board: number[][], me: number, playerCount: number): (OpponentMove | undefined)[][] {
+	const opponents = Array.from({ length: playerCount }, (_, index) => index + 1).filter(player => player !== me)
+	return board.map((row, rowIndex) => row.map((_, columnIndex) => {
+		let result: OpponentMove | undefined
+		for (const opponent of opponents) {
+			const hint = moveHintFor(board, opponent, rowIndex, columnIndex)
+			if (!hint) {
+				continue
+			}
+			if (!result || (hint === 'spawn' && result.kind === 'jump')) {
+				result = { kind: hint, player: opponent }
+			} else if (hint === result.kind) {
+				result = { kind: hint, player: null }
+			}
+		}
+		return result
+	}))
 }

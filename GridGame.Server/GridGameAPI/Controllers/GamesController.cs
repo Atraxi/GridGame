@@ -5,29 +5,56 @@ using GridGameAPI.UtilityInfrastructure;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using System.Security.Claims;
 
 namespace GridGameAPI.Controllers
 {
     [ApiController]
     [Route("[controller]/[action]")]
-    public class GamesController(GameSessionManager _sessionManager, GameContext _context) : ControllerBase
+    public class GamesController(GameSessionManager _sessionManager, GameContext _context, GameListVersion _listVersion) : ControllerBase
     {
         private const int PAGE_SIZE = 20;
 
+        /// <summary>Newest first. Polled by the home page while it's open, so a request carrying the current ETag is
+        /// answered 304 without a database query (see GameListVersion)</summary>
         [HttpGet]
-        public IEnumerable<GameSummary> GetSummaries(int page)
+        public async Task<ActionResult<IEnumerable<GameSummary>>> GetSummaries(int page)
         {
-            return _context.GridGames
+            page = Math.Max(page, 1);
+            var etag = _listVersion.ETagFor(page);
+            Response.Headers.ETag = etag;
+            Response.Headers.CacheControl = "no-cache";
+            //Cloudflare weakens a strong ETag (W/"...") when it compresses the response, so that's how it can come back
+            if (Request.Headers.IfNoneMatch.Any(candidate => candidate?.Replace("W/", "") == etag))
+            {
+                return StatusCode(StatusCodes.Status304NotModified);
+            }
+
+            var summaries = await _context.GridGames
+                .OrderByDescending(game => game.CreationDate)
+                .ThenByDescending(game => game.Id)
                 .Skip((page - 1) * PAGE_SIZE)
+                .Take(PAGE_SIZE)
                 .Select(game => new GameSummary
                 {
                     Id = game.Id,
                     Name = game.Name,
                     CreationDate = game.CreationDate,
+                    TurnNumber = game.TurnNumber,
                     IsGameOver = game.IsGameOver,
-                    //TODO it would be nice to include dynamic stuff like turnNumber, but because of GameSessionManager it gets messy and hard to embed in an IQueryable. A nice to have for later
                 })
-                .Take(PAGE_SIZE);
+                .ToListAsync();
+
+            //A live game's database row can lag by up to a round (see GridGameHub.ApplyMove), so its session wins
+            foreach (var summary in summaries)
+            {
+                if (_sessionManager.GetByGameId(summary.Id)?.GridGame is { } live)
+                {
+                    summary.TurnNumber = live.TurnNumber;
+                    summary.IsGameOver = live.IsGameOver;
+                }
+            }
+            return summaries;
         }
 
         [Authorize(Policy = AuthPolicy.AnyUser)]
@@ -75,13 +102,62 @@ namespace GridGameAPI.Controllers
             });
         }
 
+        /// <summary>Every action taken so far, oldest first, with the state hash of the board it leads up to - the
+        /// client steps backwards from its own copy of the board, so it checks that hash matches what it holds before
+        /// trusting the two to line up. A named-account feature, like the board analysis; fetched on demand rather than
+        /// pushed, since SignalR traffic is the scarcer budget (Azure SignalR's free tier bills messages per 2 KB)</summary>
+        [Authorize(Policy = AuthPolicy.NamedAccountOnly)]
+        [HttpGet]
+        public async Task<ActionResult> GetMoveHistory(int gameId)
+        {
+            //A live session is the source of truth and is mutated under its MoveLock, so the log and hash are read
+            //together under it. Otherwise the database copy is current - sessions persist before they close
+            if (_sessionManager.GetByGameId(gameId) is { } session)
+            {
+                await session.MoveLock.WaitAsync();
+                try
+                {
+                    return Ok(new
+                    {
+                        stateHash = session.StateHash,
+                        actions = session.GridGame.MoveLog.Select(action => action.ToWire()).ToList(),
+                    });
+                }
+                finally
+                {
+                    session.MoveLock.Release();
+                }
+            }
+
+            var game = await _context.GridGames.AsNoTracking().SingleOrDefaultAsync(game => game.Id == gameId);
+            if (game is null)
+            {
+                return NotFound("No game with that id exists.");
+            }
+            return Ok(new
+            {
+                stateHash = StateHash.Compute(game),
+                actions = game.MoveLog.Select(action => action.ToWire()).ToList(),
+            });
+        }
+
         //Hosting a game is a privilege of permanent named accounts, same as designing maps. Games are always hosted
         //from a saved Map, which supplies the board, player count, and actions/turn - not posted freeform by the client
         [Authorize(Policy = AuthPolicy.NamedAccountOnly)]
         [HttpPost]
-        public async Task<int> CreateFromMap(CreateGameFromMapRequest request)
+        public async Task<ActionResult<int>> CreateFromMap(CreateGameFromMapRequest request)
         {
-            var map = await _context.Maps.SingleAsync(map => map.Id == request.MapId);
+            var map = await _context.Maps.SingleOrDefaultAsync(map => map.Id == request.MapId);
+            //A draft hasn't passed the playability checks (see MapsController.Validate) - hosting one could start a game
+            //some player can never move in. Someone else's draft is reported as missing, same as MapsController.Get
+            if (map is null || (map.IsDraft && map.DesignedByPlayerId != User.FindFirstValue(ClaimTypes.NameIdentifier)))
+            {
+                return NotFound("No map with that id exists.");
+            }
+            if (map.IsDraft)
+            {
+                return BadRequest("Publish this map before hosting a game from it.");
+            }
 
             var newGame = new GridGame
             {
@@ -99,6 +175,7 @@ namespace GridGameAPI.Controllers
 
             _context.GridGames.Add(newGame);
             await _context.SaveChangesAsync();
+            _listVersion.Bump();
             return newGame.Id;
         }
     }

@@ -1,6 +1,8 @@
 ﻿using GridGameAPI.Model;
 using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.ChangeTracking;
+using System.Text.Json;
 
 namespace GridGameAPI.Database
 {
@@ -36,6 +38,22 @@ namespace GridGameAPI.Database
             builder.Entity<RefreshToken>()
                 .HasIndex(refreshToken => refreshToken.TokenHash)
                 .IsUnique();
+
+            //One JSON column of compact int arrays rather than a row per action: the hub force-saves the whole game
+            //entity (see GridGameHub.PersistGame), which keeps the history in step with the board for free, and a
+            //game's history is small - even a long game is a few thousand actions at ~25 bytes each
+            builder.Entity<GridGame>()
+                .Property(game => game.MoveLog)
+                .HasConversion(
+                    log => JsonSerializer.Serialize(log.Select(action => action.ToStorage()), (JsonSerializerOptions?)null),
+                    //Empty for games created before history was recorded - the migration adds the column with a "" default
+                    json => string.IsNullOrEmpty(json)
+                        ? new List<GameAction>()
+                        : JsonSerializer.Deserialize<List<int[]>>(json, (JsonSerializerOptions?)null)!.Select(GameAction.FromStorage).ToList(),
+                    new ValueComparer<List<GameAction>>(
+                        (a, b) => a!.SequenceEqual(b!),
+                        log => log.Aggregate(0, (hash, action) => HashCode.Combine(hash, action)),
+                        log => log.ToList()));
         }
 
         /// <summary>Used once at startup to give a freshly-created database something to show; see Program.cs</summary>

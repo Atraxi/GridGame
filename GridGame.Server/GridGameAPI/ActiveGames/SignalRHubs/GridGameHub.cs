@@ -19,7 +19,7 @@ namespace GridGameAPI.ActiveGames.SignalRHubs
     /// the other players.
     /// </summary>
     [Authorize(Policy = AuthPolicy.AnyUser)]
-    public class GridGameHub(GameSessionManager _sessionManager, GameContext _gameContext) : Hub
+    public class GridGameHub(GameSessionManager _sessionManager, GameContext _gameContext, GameListVersion _listVersion) : Hub
     {
         /// <returns>The player number the caller owns tiles as, or 0 if the game's seats are already full and they're only spectating</returns>
         public async Task<int> OnConnectedToGame(int gameId)
@@ -279,8 +279,10 @@ namespace GridGameAPI.ActiveGames.SignalRHubs
                 }
 
                 var previousStateHash = session.StateHash;
+                game.MoveLog.Add(GameAction.Resignation(game.TurnNumber, player));
                 game.ResignedPlayerNumber = player;
                 await EndGame(session);
+                _listVersion.Bump();
                 await BroadcastStateChange(session, [], previousStateHash, requiresAck: true);
             }
             finally
@@ -313,7 +315,8 @@ namespace GridGameAPI.ActiveGames.SignalRHubs
             return null;
         }
 
-        /// <summary>Writes the given (x, y, newTileValue) tuples to the board, advances the turn (skipping past any
+        /// <summary>Writes the given (x, y, newTileValue) tuples to the board - either [landing] for a spawn, or
+        /// [origin, landing] for a jump - and records the action in the move history. Then advances the turn (skipping past any
         /// player with no legal move left, e.g. eliminated or walled in), checks for game-over, persists to the DB
         /// once per completed round (rather than every move - the in-memory session is otherwise the sole source of
         /// truth while a game is live), and broadcasts all of it. Callers (RequestMove/ConfirmJump) already hold
@@ -324,6 +327,19 @@ namespace GridGameAPI.ActiveGames.SignalRHubs
             var game = session.GridGame;
             var previousStateHash = session.StateHash;
             var previousTurnNumber = game.TurnNumber;
+
+            //Recorded before the board changes, since the history keeps what the landing tile held beforehand
+            var landing = updates[^1];
+            var origin = updates.Length > 1 ? updates[0] : (X: -1, Y: -1, NewValue: 0);
+            game.MoveLog.Add(new GameAction(
+                game.TurnNumber,
+                game.CurrentPlayerNumber,
+                updates.Length > 1 ? GameActionKind.Jump : GameActionKind.Spawn,
+                landing.X,
+                landing.Y,
+                game.GameBoard[landing.X, landing.Y],
+                origin.X,
+                origin.Y));
 
             foreach (var (x, y, newValue) in updates)
             {
@@ -381,6 +397,11 @@ namespace GridGameAPI.ActiveGames.SignalRHubs
             }
 
             var turnEnded = game.IsGameOver || game.TurnNumber != previousTurnNumber;
+            if (turnEnded)
+            {
+                //The home page's game list shows the turn number and whether the game is over
+                _listVersion.Bump();
+            }
             await BroadcastStateChange(session, updates, previousStateHash, requiresAck: turnEnded);
         }
 

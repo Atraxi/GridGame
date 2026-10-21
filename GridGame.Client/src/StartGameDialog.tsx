@@ -72,6 +72,10 @@ export default function StartGameDialog({ onClose }: { onClose: () => void }) {
 							))}
 						</select>
 					</label>
+					<p className="dialog__hint">
+						Want to tweak it first?{' '}
+						<Link to={`/maps/create?from=${selectedMapId}`} onClick={onClose}>Copy this map into the editor</Link>
+					</p>
 					<label className="dialog__field">
 						Game name
 						<input value={name} onChange={event => setName(event.target.value)} />
