@@ -98,3 +98,26 @@
 	flex-wrap: wrap;
 	gap: 12px;
 }
+
+.account-page__colours {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 0.5rem 0.75rem;
+}
+
+.account-page__colours input[type="text"],
+.account-page__colours input:not([type]),
+.account-page__colours input[type="password"] {
+	min-width: 0;
+	flex: 1 1 10rem;
+}
+
+.account-page__swatch {
+	width: 2rem;
+	height: 2rem;
+	padding: 0;
+	border: 1px solid rgba(128, 128, 128, 0.6);
+	border-radius: 6px;
+	cursor: pointer;
+}

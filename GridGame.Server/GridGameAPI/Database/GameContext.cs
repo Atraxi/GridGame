@@ -20,6 +20,8 @@ namespace GridGameAPI.Database
 
         public DbSet<PastOpponent> PastOpponents { get; set; }
 
+        public DbSet<ClashChoice> ClashChoices { get; set; }
+
         public DbSet<PasswordResetToken> PasswordResetTokens { get; set; }
 
         protected override void ConfigureConventions(ModelConfigurationBuilder configurationBuilder)
@@ -89,6 +91,17 @@ namespace GridGameAPI.Database
                 .HasOne<Player>()
                 .WithMany()
                 .HasForeignKey(invite => invite.PlayerId);
+
+            builder.Entity<ClashChoice>()
+                .HasKey(choice => new { choice.GridGameId, choice.PlayerId });
+            builder.Entity<ClashChoice>()
+                .HasOne<GridGame>()
+                .WithMany()
+                .HasForeignKey(choice => choice.GridGameId);
+            builder.Entity<ClashChoice>()
+                .HasOne<Player>()
+                .WithMany()
+                .HasForeignKey(choice => choice.PlayerId);
 
             builder.Entity<PastOpponent>()
                 .HasKey(record => new { record.PlayerId, record.OpponentId });

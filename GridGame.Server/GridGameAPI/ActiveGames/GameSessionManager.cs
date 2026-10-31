@@ -49,7 +49,6 @@ namespace GridGameAPI.ActiveGames
             lock (session.MembershipLock)
             {
                 session.Connections.TryRemove(connectionId, out _);
-                session.NamedAccountConnections.TryRemove(connectionId, out _);
             }
             return session;
         }

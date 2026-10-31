@@ -22,6 +22,24 @@ namespace GridGameAPI.Database.Migrations
 
             SqlServerModelBuilderExtensions.UseIdentityColumns(modelBuilder);
 
+            modelBuilder.Entity("GridGameAPI.Model.ClashChoice", b =>
+                {
+                    b.Property<int>("GridGameId")
+                        .HasColumnType("int");
+
+                    b.Property<string>("PlayerId")
+                        .HasColumnType("nvarchar(450)");
+
+                    b.Property<bool>("SwitchToDefaults")
+                        .HasColumnType("bit");
+
+                    b.HasKey("GridGameId", "PlayerId");
+
+                    b.HasIndex("PlayerId");
+
+                    b.ToTable("ClashChoices");
+                });
+
             modelBuilder.Entity("GridGameAPI.Model.GameInvite", b =>
                 {
                     b.Property<int>("GridGameId")
@@ -73,6 +91,18 @@ namespace GridGameAPI.Database.Migrations
                     b.Property<int>("ActionsRemainingInTurn")
                         .HasColumnType("int");
 
+                    b.Property<int>("ClockBaseSeconds")
+                        .HasColumnType("int");
+
+                    b.Property<int>("ClockIncrementSeconds")
+                        .HasColumnType("int");
+
+                    b.Property<int>("ClockMode")
+                        .HasColumnType("int");
+
+                    b.PrimitiveCollection<string>("ClockRemainingMs")
+                        .HasColumnType("nvarchar(max)");
+
                     b.Property<DateTime>("CreationDate")
                         .HasColumnType("datetime2");
 
@@ -109,11 +139,17 @@ namespace GridGameAPI.Database.Migrations
                     b.Property<int?>("RematchGameId")
                         .HasColumnType("int");
 
+                    b.Property<bool>("ResignedOnTime")
+                        .HasColumnType("bit");
+
                     b.Property<int?>("ResignedPlayerNumber")
                         .HasColumnType("int");
 
                     b.Property<int>("TurnNumber")
                         .HasColumnType("int");
+
+                    b.Property<DateTime?>("TurnStartedUtc")
+                        .HasColumnType("datetime2");
 
                     b.HasKey("Id");
 
@@ -222,8 +258,17 @@ namespace GridGameAPI.Database.Migrations
                     b.Property<int>("AccessFailedCount")
                         .HasColumnType("int");
 
+                    b.Property<string>("ColourPrimary")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("ColourSecondary")
+                        .HasColumnType("nvarchar(max)");
+
                     b.Property<string>("ConcurrencyStamp")
                         .IsConcurrencyToken()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("DefaultPalette")
                         .HasColumnType("nvarchar(max)");
 
                     b.Property<string>("Email")
@@ -275,6 +320,9 @@ namespace GridGameAPI.Database.Migrations
                         .HasColumnType("nvarchar(max)");
 
                     b.Property<bool>("TwoFactorEnabled")
+                        .HasColumnType("bit");
+
+                    b.Property<bool>("UseDefaultColours")
                         .HasColumnType("bit");
 
                     b.Property<string>("UserName")
@@ -462,6 +510,21 @@ namespace GridGameAPI.Database.Migrations
                     b.HasKey("UserId", "LoginProvider", "Name");
 
                     b.ToTable("AspNetUserTokens", (string)null);
+                });
+
+            modelBuilder.Entity("GridGameAPI.Model.ClashChoice", b =>
+                {
+                    b.HasOne("GridGameAPI.Model.GridGame", null)
+                        .WithMany()
+                        .HasForeignKey("GridGameId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("GridGameAPI.Model.Player", null)
+                        .WithMany()
+                        .HasForeignKey("PlayerId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
                 });
 
             modelBuilder.Entity("GridGameAPI.Model.GameInvite", b =>

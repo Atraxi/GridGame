@@ -190,6 +190,27 @@ export async function resetPassword(token: string, password: string) {
 	}))
 }
 
+/** The guest session's refresh token, if this browser is a guest. Read it before logging in, which replaces it */
+export const getGuestRefreshToken = () => isGuest() ? localStorage.getItem(REFRESH_TOKEN_KEY) : null
+
+/** How many games that guest session has played in - what logging in to a named account would otherwise abandon */
+export async function guestGameCount(refreshToken: string) {
+	const response = await fetchWhileWaking('/Users/GuestHistory', {
+		method: 'POST',
+		headers: { 'Content-Type': 'application/json' },
+		body: JSON.stringify({ refreshToken }),
+	})
+	return response.ok ? (await response.json()).games as number : 0
+}
+
+/** Moves the guest's games into the account now signed in. The guest is deleted */
+export async function claimGuest(refreshToken: string) {
+	const response = await authorizedFetch('/Users/ClaimGuest', { method: 'POST', body: JSON.stringify({ refreshToken }) })
+	if (!response.ok) {
+		throw new Error(await response.text() || `Request failed: ${response.status}`)
+	}
+}
+
 /** Signs this device out (revoking its refresh token server-side). The next request mints a fresh guest */
 export async function logout() {
 	const refreshToken = localStorage.getItem(REFRESH_TOKEN_KEY)

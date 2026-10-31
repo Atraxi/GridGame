@@ -22,6 +22,10 @@ namespace GridGameAPI.ActiveGames
 
         public void Bump() => Interlocked.Increment(ref _version);
 
-        public string ETagFor(int page) => $"\"{_epoch}-{Interlocked.Read(ref _version)}-{page}\"";
+        /// <param name="viewerId">The list differs per viewer (invite-only games are hidden from everyone else), so
+        /// the ETag does too - otherwise logging in as someone else would 304 into the previous account's list</param>
+        public string ETagFor(int page, string? viewerId) =>
+            //string.GetHashCode is randomised per process, which is fine: the epoch already resets every ETag on restart
+            $"\"{_epoch}-{Interlocked.Read(ref _version)}-{page}-{(viewerId ?? "").GetHashCode():x}\"";
     }
 }

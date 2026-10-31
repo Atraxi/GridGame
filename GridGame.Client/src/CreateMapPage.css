@@ -56,16 +56,6 @@
 	/* Buttons are held down and dragged across for painting - text selection just gets in the way */
 	user-select: none;
 
-	/* Board.css scopes these to .board, which the palette swatches sit outside of (as .board's sibling, not
-	   descendant) - redeclared here so the swatch tiles pick up the same player colours */
-	--player-1: #e05252;
-	--player-2: #3d7dd8;
-	--player-3: #3fa45b;
-	--player-4: #dc9a2e;
-	--player-5: #9b5de5;
-	--player-6: #16a6a6;
-	--player-7: #d64f9a;
-	--player-8: #8d6e3f;
 	--dead: #c3bfca;
 }
 

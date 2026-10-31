@@ -16,12 +16,15 @@ namespace GridGameAPI.Controllers
         private const int PAGE_SIZE = 20;
 
         /// <summary>Newest first. Polled by the home page while it's open, so a request carrying the current ETag is
-        /// answered 304 without a database query (see GameListVersion)</summary>
+        /// answered 304 without a database query (see GameListVersion). Games in progress, or with `finished` the
+        /// finished ones instead</summary>
         [HttpGet]
-        public async Task<ActionResult<IEnumerable<GameSummary>>> GetSummaries(int page)
+        public async Task<ActionResult<IEnumerable<GameSummary>>> GetSummaries(int page, bool finished = false)
         {
             page = Math.Max(page, 1);
-            var etag = _listVersion.ETagFor(page);
+            //Anonymous callers (no token) see public games only
+            var viewerId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+            var etag = _listVersion.ETagFor(page, finished ? "finished:" + viewerId : viewerId);
             Response.Headers.ETag = etag;
             Response.Headers.CacheControl = "no-cache";
             //Cloudflare weakens a strong ETag (W/"...") when it compresses the response, so that's how it can come back
@@ -30,7 +33,12 @@ namespace GridGameAPI.Controllers
                 return StatusCode(StatusCodes.Status304NotModified);
             }
 
+            //Invite-only games are listed only to the accounts invited to them (the host is always on that list). Anyone
+            //holding the link can still open one and watch
             var summaries = await _context.GridGames
+                .Where(game => game.IsGameOver == finished)
+                .Where(game => !game.IsInviteOnly ||
+                    _context.GameInvites.Any(invite => invite.GridGameId == game.Id && invite.PlayerId == viewerId))
                 .OrderByDescending(game => game.CreationDate)
                 .ThenByDescending(game => game.Id)
                 .Skip((page - 1) * PAGE_SIZE)
@@ -169,7 +177,13 @@ namespace GridGameAPI.Controllers
                 }
             }
 
+            if (GameClock.Validate(request.ClockMode, request.ClockBaseSeconds, request.ClockIncrementSeconds) is { } clockError)
+            {
+                return BadRequest(clockError);
+            }
+
             var newGame = GameHosting.NewGame(map, request.Name, isInviteOnly: invitedIds.Count > 0);
+            GameClock.Configure(newGame, request.ClockMode, request.ClockBaseSeconds, request.ClockIncrementSeconds);
             _context.GridGames.Add(newGame);
             if (newGame.IsInviteOnly)
             {

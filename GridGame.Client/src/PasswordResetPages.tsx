@@ -28,13 +28,12 @@ export function ForgotPasswordPage() {
 			{sent
 				? <div className="auth-page__notice">
 					<p>
-						If an account matches, a link to choose a new password is on its way to the email address it was
-						created with. It works for an hour.
+						If an account matches, a reset link (valid for an hour) is on its way.
 					</p>
-					<p>Nothing arrived? Check your spam folder, or wait a couple of minutes and ask again.</p>
+					<p>Nothing? Check spam, or try again in a few minutes.</p>
 				</div>
 				: <form className="auth-page__form" onSubmit={submit}>
-					<p>Enter your user name or email address, and we'll email you a link to choose a new password.</p>
+					<p>Enter your user name or email to get a reset link.</p>
 					<label className="auth-page__field auth-page__field--plain">
 						User name or email
 						<input required value={userNameOrEmail} autoComplete="username" onChange={event => setUserNameOrEmail(event.target.value)} />
@@ -61,7 +60,7 @@ export function ResetPasswordPage() {
 		return (
 			<section className="auth-page">
 				<h1>Reset your password</h1>
-				<p>This link is incomplete - try opening it from the email again, or <Link to="/forgot-password">ask for a new one</Link>.</p>
+				<p>Incomplete link - reopen it from the email, or <Link to="/forgot-password">ask for a new one</Link>.</p>
 			</section>
 		)
 	}
@@ -99,7 +98,7 @@ export function ResetPasswordPage() {
 					/>
 				</label>
 				<p className="auth-page__hint">
-					At least {MIN_PASSWORD_LENGTH} characters. Saving signs you in here, and signs this account out everywhere else.
+					At least {MIN_PASSWORD_LENGTH} characters. Saving signs you in here and out everywhere else.
 				</p>
 				{mismatch && <p className="auth-page__error">The two passwords don't match.</p>}
 				<button type="submit" disabled={saving || mismatch}>{saving ? 'Saving...' : 'Save new password'}</button>

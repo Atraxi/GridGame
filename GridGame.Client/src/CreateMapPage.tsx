@@ -247,12 +247,12 @@ function CreateMapPage() {
 			{source.mode === 'clone' && (
 				<p className="map-editor__note">
 					Starting from "{source.map.name}"{source.map.designedByUserName && ` by ${source.map.designedByUserName}`}.
-					Saving creates a new map of your own - the original isn't changed.
+					Saving creates your own copy.
 				</p>
 			)}
 			{source.mode === 'edit' && !isDraft && (
 				<p className="map-editor__note">
-					This map is published. Games already hosted from it keep the board they started with.
+					Published. Games already hosted keep their board.
 				</p>
 			)}
 
@@ -292,10 +292,9 @@ function CreateMapPage() {
 				</label>
 			</div>
 
-			<p>Pick a tile type from the palette, then tap, click or drag across the board to paint it.</p>
+			<p>Pick a tile type, then tap or drag across the board to paint.</p>
 			<p>
-				To publish, every player needs at least one starting tile, and every player must be reachable from every
-				other player's territory. Not finished? Save it as a draft and come back to it from your account page.
+				To publish, every player needs a starting tile and must be reachable from every other player. Not done? Save a draft.
 			</p>
 
 			<div className="map-editor__workspace">
@@ -356,8 +355,7 @@ function CreateMapPage() {
 					<p>Couldn't save the map: {error}</p>
 					{sessionExpired && (
 						<p>
-							Your design is still here. <a href="/login?expired=1" target="_blank" rel="noopener">Log in again in a new
-							tab</a>, then come back to this one and save again.
+							Your design is kept. <a href="/login?expired=1" target="_blank" rel="noopener">Log in in a new tab</a>, then save again.
 						</p>
 					)}
 				</div>
@@ -370,7 +368,7 @@ function CreateMapPage() {
 					{saving ? 'Saving...' : isDraft ? 'Publish map' : 'Save changes'}
 				</button>
 				<span className="map-editor__status" aria-live="polite">
-					{!name.trim() ? 'Give the map a name to publish it.' : dirty ? 'Unsaved changes' : notice}
+					{!name.trim() ? 'Name the map to publish.' : dirty ? 'Unsaved changes' : notice}
 				</span>
 			</div>
 		</section>

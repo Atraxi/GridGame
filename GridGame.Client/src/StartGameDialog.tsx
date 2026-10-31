@@ -5,6 +5,8 @@ import type { MapSummary } from "./model/MapSummary"
 import type { PastOpponent } from "./model/PastOpponent"
 import "./StartGameDialog.css"
 
+type TimerChoice = 'none' | 'speed' | 'bank' | 'perTurn' | 'perTurnSkip'
+
 export default function StartGameDialog({ onClose }: { onClose: () => void }) {
 	const navigate = useNavigate()
 	const [maps, setMaps] = useState<MapSummary[] | null>(null)
@@ -15,6 +17,21 @@ export default function StartGameDialog({ onClose }: { onClose: () => void }) {
 	const [inviteOnly, setInviteOnly] = useState(false)
 	const [opponents, setOpponents] = useState<PastOpponent[] | null>(null)
 	const [invited, setInvited] = useState<Set<string>>(new Set())
+	const [timer, setTimer] = useState<TimerChoice>('none')
+	const [bankMinutes, setBankMinutes] = useState(5)
+	const [incrementSeconds, setIncrementSeconds] = useState(3)
+	const [turnSeconds, setTurnSeconds] = useState(30)
+
+	//Speed chess is just a preset of the chess clock: a short bank with a little added back each turn
+	const clockSettings = () => {
+		switch (timer) {
+			case 'speed': return { clockMode: 'Bank', clockBaseSeconds: 180, clockIncrementSeconds: 2 }
+			case 'bank': return { clockMode: 'Bank', clockBaseSeconds: Math.round(bankMinutes * 60), clockIncrementSeconds: incrementSeconds }
+			case 'perTurn': return { clockMode: 'PerTurn', clockBaseSeconds: turnSeconds, clockIncrementSeconds: 0 }
+			case 'perTurnSkip': return { clockMode: 'PerTurnSkip', clockBaseSeconds: turnSeconds, clockIncrementSeconds: 0 }
+			default: return { clockMode: 'None', clockBaseSeconds: 0, clockIncrementSeconds: 0 }
+		}
+	}
 
 	useEffect(() => {
 		authorizedFetch('/Users/Opponents')
@@ -64,7 +81,7 @@ export default function StartGameDialog({ onClose }: { onClose: () => void }) {
 		setError(null)
 		authorizedFetch('/Games/CreateFromMap', {
 			method: 'POST',
-			body: JSON.stringify({ mapId: selectedMapId, name, invitedPlayerIds: inviteOnly ? [...invited] : [] }),
+			body: JSON.stringify({ mapId: selectedMapId, name, invitedPlayerIds: inviteOnly ? [...invited] : [], ...clockSettings() }),
 		})
 			.then(async response => {
 				if (!response.ok) {
@@ -82,7 +99,7 @@ export default function StartGameDialog({ onClose }: { onClose: () => void }) {
 				<h2 id="start-game-title">Start a new game</h2>
 
 				{maps === null && !error && <p>Loading maps...</p>}
-				{maps?.length === 0 && <p>No maps exist yet - <Link to="/maps/create" onClick={onClose}>create one</Link> first.</p>}
+				{maps?.length === 0 && <p>No maps yet - <Link to="/maps/create" onClick={onClose}>create one</Link>.</p>}
 
 				{maps && maps.length > 0 && <>
 					<label className="dialog__field">
@@ -96,8 +113,8 @@ export default function StartGameDialog({ onClose }: { onClose: () => void }) {
 						</select>
 					</label>
 					<p className="dialog__hint">
-						Want to tweak it first?{' '}
-						<Link to={`/maps/create?from=${selectedMapId}`} onClick={onClose}>Copy this map into the editor</Link>
+						
+						<Link to={`/maps/create?from=${selectedMapId}`} onClick={onClose}>Edit a copy of this map</Link>
 					</p>
 					<label className="dialog__field">
 						Game name
@@ -114,10 +131,10 @@ export default function StartGameDialog({ onClose }: { onClose: () => void }) {
 							Only players I pick
 						</label>
 						{inviteOnly && (opponents === null
-							? <p className="dialog__hint">Loading the players you've played with...</p>
+							? <p className="dialog__hint">Loading...</p>
 							: opponents.length === 0
 								? <p className="dialog__hint">
-									You can only invite named players you've played a game with before, and there aren't any yet.
+									No past opponents to invite yet.
 								</p>
 								: <div className="dialog__invitees">
 									{opponents.map(opponent => (
@@ -131,9 +148,42 @@ export default function StartGameDialog({ onClose }: { onClose: () => void }) {
 										</label>
 									))}
 								</div>)}
-						{inviteOnly && <p className="dialog__hint">Anyone else can still watch.</p>}
+						{inviteOnly && <p className="dialog__hint">Others can still watch.</p>}
 					</fieldset>
-					<div className="dialog__actions">
+					<fieldset className="dialog__fieldset">
+				<legend>Timer</legend>
+				<label className="dialog__field">
+					<select value={timer} onChange={event => setTimer(event.target.value as TimerChoice)}>
+						<option value="none">No timer</option>
+						<option value="speed">Speed chess (3 min, +2s)</option>
+						<option value="bank">Chess clock</option>
+						<option value="perTurn">Turn limit - lose on timeout</option>
+						<option value="perTurnSkip">Turn limit - skip on timeout</option>
+					</select>
+				</label>
+				{timer === 'bank' && <>
+					<label className="dialog__field">
+						Minutes each
+						<input type="number" min={0.5} max={60} step={0.5} value={bankMinutes} onChange={event => setBankMinutes(Number(event.target.value))} />
+					</label>
+					<label className="dialog__field">
+						Seconds added per turn
+						<input type="number" min={0} max={60} value={incrementSeconds} onChange={event => setIncrementSeconds(Number(event.target.value))} />
+					</label>
+				</>}
+				{(timer === 'perTurn' || timer === 'perTurnSkip') && (
+					<label className="dialog__field">
+						Seconds per turn
+						<input type="number" min={5} max={600} value={turnSeconds} onChange={event => setTurnSeconds(Number(event.target.value))} />
+					</label>
+				)}
+				{timer !== 'none' && (
+					<p className="dialog__hint">
+						{timer === 'perTurnSkip' ? 'Timing out skips your turn.' : 'Timing out loses.'} Starts after the first turn.
+					</p>
+				)}
+			</fieldset>
+			<div className="dialog__actions">
 						<button onClick={onClose}>Cancel</button>
 						<button onClick={submit} disabled={starting || !name.trim() || (inviteOnly && invited.size === 0)}>
 							{starting ? 'Starting...' : 'Start game'}

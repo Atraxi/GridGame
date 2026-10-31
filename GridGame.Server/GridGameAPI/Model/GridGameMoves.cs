@@ -27,9 +27,31 @@ namespace GridGameAPI.Model
             board[originX, originY] == player &&
             Directions.Any(d => originX + d.Dx * 2 == x && originY + d.Dy * 2 == y);
 
+        /// <summary>An unclaimed cell only one player can ever reach: moving there is pointless, since nobody can contest
+        /// it and no route to a contested cell runs through it (reach is symmetric), so such moves are refused. It's
+        /// scored for its claimant when the game ends anyway (see BoardAnalysis)</summary>
+        public static bool IsBlocked(int[,] board, CellInsight[,]? insight, int x, int y) =>
+            insight is not null && board[x, y] == UtilityInfrastructure.TileState.Unclaimed &&
+            insight[x, y] is CellInsight.UncontestedSecure or CellInsight.UncontestedAtRisk;
+
+        /// <summary>The next player after `current` with a legal move, or null if nobody has one</summary>
+        public static int? NextMover(int[,] board, int playerCount, int current, CellInsight[,]? insight)
+        {
+            for (var attempt = 0; attempt < playerCount; attempt++)
+            {
+                current = current % playerCount + 1;
+                if (HasAnyLegalMove(board, current, insight))
+                {
+                    return current;
+                }
+            }
+            return null;
+        }
+
         /// <summary>True if any tile `player` owns has at least one legal spawn or jump target. Used to skip a
-        /// player's turn instead of stalling on them once they have nowhere left to go (eliminated, or walled in)</summary>
-        public static bool HasAnyLegalMove(int[,] board, int player)
+        /// player's turn instead of stalling on them once they have nowhere left to go (eliminated, or walled in).
+        /// Targets blocked by `insight` (see IsBlocked) don't count</summary>
+        public static bool HasAnyLegalMove(int[,] board, int player, CellInsight[,]? insight = null)
         {
             var rows = board.GetLength(0);
             var columns = board.GetLength(1);
@@ -47,7 +69,8 @@ namespace GridGameAPI.Model
                         {
                             var nx = x + direction.Dx * distance;
                             var ny = y + direction.Dy * distance;
-                            if (InBounds(board, nx, ny) && board[nx, ny] != player && board[nx, ny] != UtilityInfrastructure.TileState.Dead)
+                            if (InBounds(board, nx, ny) && board[nx, ny] != player && board[nx, ny] != UtilityInfrastructure.TileState.Dead &&
+                                !IsBlocked(board, insight, nx, ny))
                             {
                                 return true;
                             }

@@ -14,8 +14,7 @@ export default function App() {
       <section className="home-intro">
         <h1>GridGame</h1>
         <p className="home-intro__tagline">
-          A turn-based territory game. Spread across the grid, wall your rivals off, and hold the most ground when the
-          board settles.
+          A turn-based territory game. Spread out, wall your rivals off, hold the most ground.
         </p>
       </section>
 

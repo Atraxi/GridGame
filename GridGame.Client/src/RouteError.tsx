@@ -14,7 +14,7 @@ export default function RouteError() {
 	}
 
 	let title = 'Something went wrong'
-	let detail = "An unexpected error occurred. Trying again usually sorts it out."
+	let detail = "Something went wrong. Try again."
 	if (error instanceof ServerUnavailableError) {
 		title = "Can't reach the server"
 		detail = error.message
@@ -24,9 +24,9 @@ export default function RouteError() {
 			detail = typeof error.data === 'string' && error.data ? error.data : "That page or game doesn't exist."
 		} else if (error.status === 401 || error.status === 403) {
 			title = "You don't have access to this"
-			detail = 'Some features need a named account - create one or log in from the link in the header.'
+			detail = 'This needs a named account - create one or log in.'
 		} else if (error.status >= 500) {
-			detail = 'The server had a problem handling that request. It may be waking up - try again in a moment.'
+			detail = 'Server error. It may be waking up - try again shortly.'
 		}
 	}
 

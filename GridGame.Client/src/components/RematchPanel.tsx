@@ -3,19 +3,21 @@ import { Link } from "react-router"
 import type * as signalR from '@microsoft/signalr'
 import { authorizedFetch, isGuest } from "../auth"
 import type { MapSummary } from "../model/MapSummary"
+import type { PresenceEntry } from "./PlayerLegend"
 import "./RematchPanel.css"
 
 type RematchResult = { gameId?: number, error?: string }
 
 /** Shown once a game is over: start a rematch (GridGameHub.Rematch), or follow one someone else has started. Starting
  * one pulls everyone seated here into it - see the rematchCreated handler in GridGame.tsx */
-export default function RematchPanel({ connection, isSeated, rematchGameId, mapId, playerCount }: {
+export default function RematchPanel({ connection, isSeated, rematchGameId, mapId, playerCount, presence }: {
 	connection: signalR.HubConnection | null,
 	isSeated: boolean,
 	rematchGameId: number | null,
 	/** The map this game was hosted from, if known - older games didn't record it */
 	mapId: number | null,
 	playerCount: number,
+	presence: PresenceEntry[],
 }) {
 	const [choosing, setChoosing] = useState(false)
 	const [maps, setMaps] = useState<MapSummary[] | null>(null)
@@ -51,7 +53,7 @@ export default function RematchPanel({ connection, isSeated, rematchGameId, mapI
 		return (
 			<div className="rematch-panel">
 				<p>
-					Only named accounts can host a rematch - if another player starts one, you'll be taken to it.
+					Only named accounts can host a rematch.
 					{' '}<Link to="/login">Create an account</Link>
 				</p>
 			</div>
@@ -76,11 +78,16 @@ export default function RematchPanel({ connection, isSeated, rematchGameId, mapI
 	}
 
 	const selectedMap = maps?.find(map => map.id === selectedMapId)
+	//Mirrors GridGameHub.Rematch: a map must have as many seats as this game, unless players have left - then it only
+	//has to seat everyone still here
+	const seatedEntries = presence.filter(entry => entry.status !== 'open')
+	const online = seatedEntries.filter(entry => entry.status === 'connected' || entry.status === 'unresponsive').length
+	const offline = seatedEntries.length - online
+	const fits = (map: MapSummary) => map.playerCount === playerCount || (offline > 0 && map.playerCount >= online)
 
 	return (
 		<div className="rematch-panel">
-			<p>Play again? Everyone here is brought into the new game. Seats go to whoever arrives first, so if someone
-				doesn't follow, anyone else can take their place.</p>
+			<p>Play again? Everyone here is brought along; seats go to whoever arrives first.</p>
 			{!choosing
 				? <div className="rematch-panel__actions">
 					{mapId != null && (
@@ -94,7 +101,7 @@ export default function RematchPanel({ connection, isSeated, rematchGameId, mapI
 				</div>
 				: <>
 					{maps === null && !error && <p>Loading maps...</p>}
-					{maps?.length === 0 && <p>There are no published maps to choose from.</p>}
+					{maps?.length === 0 && <p>No published maps.</p>}
 					{maps && maps.length > 0 && (
 						<label className="rematch-panel__field">
 							Map
@@ -109,15 +116,14 @@ export default function RematchPanel({ connection, isSeated, rematchGameId, mapI
 					)}
 					{selectedMap && selectedMap.playerCount < playerCount && (
 						<p className="rematch-panel__hint">
-							This map only has {selectedMap.playerCount} seats - the first {selectedMap.playerCount} players
-							to arrive get them, and anyone else watches.
+							Only {selectedMap.playerCount} seats - the first to arrive play, the rest watch.
 						</p>
 					)}
 					<div className="rematch-panel__actions">
 						<button type="button" onClick={() => setChoosing(false)}>Cancel</button>
 						<button
 							type="button" className="rematch-panel__go"
-							disabled={starting || !connection || selectedMapId == null}
+							disabled={starting || !connection || !selectedMap || !fits(selectedMap)}
 							onClick={() => start(selectedMapId)}
 						>
 							{starting ? 'Starting...' : 'Start rematch'}

@@ -16,14 +16,16 @@ const formatDate = (iso: string) => {
 
 /** The home page's game list. Kept current by polling while the tab is visible: the server answers 304 when nothing
  * has changed since the ETag this list last saw, so a quiet poll is cheap */
-export default function GameList() {
+export default function GameList({ finished = false }: { finished?: boolean }) {
+	//The route loader's copy is of the home page's list: games in progress
 	const loaderData = useLoaderData<GameSummary[]>()
+	const initial = finished ? [] : loaderData
 	const [page, setPage] = useState(1)
-	const [gamesList, setGamesList] = useState(loaderData)
+	const [gamesList, setGamesList] = useState(initial)
 	const [error, setError] = useState<string | null>(null)
 	//Each page's last-seen rows and ETag, so a 304 can restore the right rows when flicking back to a page already
 	//seen. Page 1 starts out with the route loader's copy, which has no ETag yet
-	const pages = useRef(new Map<number, { etag: string | null, games: GameSummary[] }>([[1, { etag: null, games: loaderData }]]))
+	const pages = useRef(new Map<number, { etag: string | null, games: GameSummary[] }>(finished ? [] : [[1, { etag: null, games: loaderData }]]))
 
 	useEffect(() => {
 		let cancelled = false
@@ -32,7 +34,7 @@ export default function GameList() {
 		const poll = async () => {
 			try {
 				const etag = pages.current.get(page)?.etag
-				const response = await authorizedFetch(`/Games/GetSummaries?page=${page}`, {
+				const response = await authorizedFetch(`/Games/GetSummaries?page=${page}${finished ? '&finished=true' : ''}`, {
 					//Bypasses the browser's own cache so a 304 reaches this code instead of being swapped for a stored copy
 					cache: 'no-store',
 					headers: etag ? { 'If-None-Match': etag } : undefined,
@@ -108,13 +110,13 @@ export default function GameList() {
 			}
 			document.removeEventListener('visibilitychange', onVisibilityChange)
 		}
-	}, [page])
+	}, [page, finished])
 
 	return (
 		<section className="game-list">
 			{error && <p className="game-list__error">Couldn't refresh the game list: {error}</p>}
 			{gamesList.length === 0
-				? <p>{page === 1 ? 'No games yet.' : 'No more games.'}</p>
+				? <p>{page === 1 ? (finished ? 'No finished games.' : 'No games in progress.') : 'No more games.'}</p>
 				: <div className="game-list__scroll">
 					<table>
 						<thead>
@@ -130,7 +132,7 @@ export default function GameList() {
 								<tr key={gameSummary.id}>
 									<td className="game-list__name">
 										<Link to={`/gridgame/${gameSummary.id}`}>{gameSummary.name}</Link>
-										{gameSummary.isInviteOnly && <span className="game-list__badge" title="Only invited players can take a seat - anyone can watch">Invite only</span>}
+										{gameSummary.isInviteOnly && <span className="game-list__badge" title="Only invited players can sit; anyone can watch">Invite only</span>}
 									</td>
 									<td className="game-list__created">{formatDate(gameSummary.creationDate)}</td>
 									<td>{gameSummary.turnNumber}</td>

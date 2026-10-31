@@ -4,7 +4,10 @@ import GameAnalysis from "./components/GameAnalysis";
 import MoveHistory from "./components/MoveHistory";
 import PlayerLegend, { type PresenceEntry } from "./components/PlayerLegend";
 import RematchPanel from "./components/RematchPanel";
-import { playerColour } from "./components/game_board/playerColour";
+import { playerSwatch } from "./components/game_board/playerColour";
+import { resolveSeatColours, seatColourStyle } from "./components/game_board/seatColours";
+import { useViewerPalette } from "./model/palette";
+import { formatMs, useTimeLeft, type Clock, type ClockReading } from "./model/clock";
 import * as signalR from '@microsoft/signalr';
 import { useLoaderData, useNavigate, useParams } from "react-router";
 import type { GridGame } from "./model/GridGame";
@@ -26,6 +29,9 @@ type StatePush = {
     turnNumber: number,
     isGameOver: boolean,
     resignedPlayerNumber: number | null,
+    resignedOnTime: boolean,
+    autoResolving: boolean,
+    clock: Clock | null,
     previousStateHash: number,
     stateHash: number,
     requiresAck: boolean,
@@ -39,19 +45,26 @@ type Snapshot = {
     turnNumber: number,
     isGameOver: boolean,
     resignedPlayerNumber: number | null,
+    resignedOnTime: boolean,
+    autoResolving: boolean,
+    clock: Clock | null,
     rematchGameId: number | null,
     stateHash: number,
     informallyDecidedFor: number | null,
     presence: PresenceEntry[],
     analysis: BoardAnalysis | null,
+    /** This account's answer to the colour-clash prompt for this game; null until given */
+    clashChoice: boolean | null,
 }
-type MoveRejected = { x: number, y: number, reason: 'spectating' | 'notYourTurn' | 'unreachable' | 'gameOver' }
+type MoveRejected = { x: number, y: number, reason: 'spectating' | 'notYourTurn' | 'unreachable' | 'gameOver' | 'uncontested' | 'autoResolving' }
 
 const REJECTION_MESSAGES: Record<MoveRejected['reason'], string> = {
-    spectating: "Every seat in this game is taken - you're only watching.",
+    spectating: "Seats are full - you're watching.",
     notYourTurn: "It's not your turn.",
-    unreachable: "That tile can't be reached from any of your tiles.",
-    gameOver: "This game has already ended.",
+    unreachable: "Not reachable from your tiles.",
+    gameOver: "The game has ended.",
+    uncontested: "Only one player can reach that ground - it already counts for them.",
+    autoResolving: "Forced trades are being played out.",
 }
 
 const SHOW_OPPONENT_MOVES_KEY = 'gridgame.showOpponentMoves'
@@ -104,6 +117,14 @@ function GridGamePage() {
     //Resigning before the board says the game is decided needs a second, deliberate step (see the resign controls)
     const [confirmingResign, setConfirmingResign] = useState(false)
     const [rematchGameId, setRematchGameId] = useState(initialState.rematchGameId ?? null)
+    //Only forced trades remain and the server is playing them out (see AutoResolve.cs); the board is locked meanwhile
+    const [autoResolving, setAutoResolving] = useState(false)
+    const [resignedOnTime, setResignedOnTime] = useState(initialState.resignedOnTime ?? false)
+    const [clock, setClock] = useState<ClockReading | null>(null)
+    //Starts from the account's "always use default colours" setting, and can be flipped for this visit
+    const [useDefaultColours, setUseDefaultColours] = useState(false)
+    const [clashChoice, setClashChoice] = useState<boolean | null>(null)
+    const viewerPalette = useViewerPalette()
     //Read by the rematchCreated handler, which is attached once and so can't see the latest state
     const myPlayerNumberRef = useRef<number | null>(null)
     useEffect(() => { myPlayerNumberRef.current = myPlayerNumber }, [myPlayerNumber])
@@ -134,7 +155,33 @@ function GridGamePage() {
     //any that chain on from the snapshot are replayed once it lands
     const resyncRef = useRef<{ pending: boolean, buffered: StatePush[] }>({ pending: false, buffered: [] })
 
-    const isMyTurn = !gameState.isGameOver && myPlayerNumber != null && myPlayerNumber === gameState.currentPlayerNumber
+    const isMyTurn = !gameState.isGameOver && !autoResolving && myPlayerNumber != null && myPlayerNumber === gameState.currentPlayerNumber
+
+    const timeLeft = useTimeLeft(clock, gameState.currentPlayerNumber, !gameState.isGameOver && !autoResolving, gameState.playerCount)
+    const currentTimeLeft = timeLeft?.[gameState.currentPlayerNumber - 1] ?? null
+    const timedOut = currentTimeLeft != null && currentTimeLeft <= 0 && clock?.clock.elapsedMs != null && !gameState.isGameOver && !autoResolving
+    //Whoever notices first asks; the server checks against its own clock, so asking early or twice does no harm
+    useEffect(() => {
+        if (!timedOut || !connection) {
+            return
+        }
+        const claim = () => connection.invoke('claimTimeout').catch(() => {})
+        claim()
+        const retry = setInterval(claim, 2000)
+        return () => clearInterval(retry)
+    }, [timedOut, connection, gameState.turnNumber])
+
+    useEffect(() => {
+        authorizedFetch('/Users/Me')
+            .then(response => response.ok ? response.json() : null)
+            .then(profile => { if (profile) setUseDefaultColours(profile.useDefaultColours) })
+            .catch(() => {})
+    }, [])
+    const seatColours = useMemo(() => resolveSeatColours(presence, useDefaultColours, viewerPalette, clashChoice), [presence, useDefaultColours, viewerPalette, clashChoice])
+    const answerClash = (switchToDefaults: boolean) => {
+        setClashChoice(switchToDefaults)
+        connection?.invoke("setClashChoice", switchToDefaults).catch(() => setStatusMessage("Couldn't save that - check your connection and try again."))
+    }
 
     //Final scores are a named-account-only feature - GridGame.FinalScores is left off every other response, so
     //this is the only place it's ever fetched from
@@ -195,6 +242,9 @@ function GridGamePage() {
             }
             commit(next)
             setInformallyDecidedFor(push.informallyDecidedFor)
+            setAutoResolving(push.autoResolving && !push.isGameOver)
+            setResignedOnTime(push.resignedOnTime)
+            setClock(push.clock && { clock: push.clock, receivedAt: performance.now() })
             const action = actionFromPush(previous, push.updates, push.resignedPlayerNumber)
             if (action) {
                 setHistory(current => current && [...current, action])
@@ -235,8 +285,12 @@ function GridGamePage() {
                     console.warn('State hash mismatch straight after a resync - client and server hashing have diverged')
                 }
                 setInformallyDecidedFor(snapshot.informallyDecidedFor)
+                setAutoResolving(snapshot.autoResolving && !snapshot.isGameOver)
+                setResignedOnTime(snapshot.resignedOnTime)
+                setClock(snapshot.clock && { clock: snapshot.clock, receivedAt: performance.now() })
                 setPresence(snapshot.presence)
                 setRematchGameId(snapshot.rematchGameId)
+                setClashChoice(snapshot.clashChoice)
                 if (snapshot.analysis) {
                     setAnalysis(snapshot.analysis)
                 }
@@ -294,6 +348,12 @@ function GridGamePage() {
                 setPresence(update)
             })
 
+            hub.on('autoResolveStarted', () => {
+                setJumpChoice(null)
+                setPendingMove(null)
+                setAutoResolving(true)
+            })
+
             //Everyone who played is pulled straight into the rematch; spectators are offered a link instead (see RematchPanel)
             hub.on('rematchCreated', ({ gameId }: { gameId: number }) => {
                 setRematchGameId(gameId)
@@ -306,7 +366,7 @@ function GridGamePage() {
                 setJumpChoice(null)
                 setPendingMove(null)
                 setStatusMessage(rejection.reason === 'spectating' && modelRef.current.isInviteOnly
-                    ? "This game is invite-only - you're only watching."
+                    ? "Invite-only - you're watching."
                     : REJECTION_MESSAGES[rejection.reason] ?? "That move isn't allowed.")
             })
 
@@ -385,7 +445,7 @@ function GridGamePage() {
                     if (error instanceof SessionExpiredError || Date.now() - started > 5 * 60_000) {
                         throw error
                     }
-                    setStatusMessage('Connecting to the game - the server may be waking up, which can take a minute...')
+                    setStatusMessage('Connecting - the server may be waking up...')
                     await sleep(delay)
                     delay = Math.min(delay * 2, 15_000)
                 }
@@ -454,7 +514,7 @@ function GridGamePage() {
                 navigate(loginRedirectPath(), { replace: true })
             } else {
                 console.log('Error while starting connection: ' + error)
-                setStatusMessage("Couldn't reach the game server. It'll try again when you come back to this tab, or refresh the page to try now.")
+                setStatusMessage("Couldn't reach the server. Retrying when you return to this tab, or refresh.")
             }
             return null
         }
@@ -505,7 +565,7 @@ function GridGamePage() {
                 } else if (++attempts < 5) {
                     retryTimer = setTimeout(load, 1000)
                 } else {
-                    setHistoryError("The history couldn't be lined up with the board - close and reopen it to try again.")
+                    setHistoryError("History doesn't match the board - reopen it.")
                 }
             } catch (error) {
                 if (!cancelled) {
@@ -555,7 +615,7 @@ function GridGamePage() {
 
     const onTileClicked = (x: number, y: number) => () => {
         //A past board is only for looking at
-        if (!connection || gameState.isGameOver || viewingHistory) {
+        if (!connection || gameState.isGameOver || viewingHistory || autoResolving) {
             return
         }
         if (jumpChoice) {
@@ -610,8 +670,8 @@ function GridGamePage() {
         }
     }
 
-    const lockSeat = () => {
-        connection?.invoke("lockSeat").catch(() => setStatusMessage("Couldn't lock your seat - check your connection and try again."))
+    const toggleSeatLock = () => {
+        connection?.invoke(mySeatLocked ? "unlockSeat" : "lockSeat").catch(() => setStatusMessage("Couldn't change your seat lock - check your connection and try again."))
     }
 
     const sendResign = () => {
@@ -638,44 +698,48 @@ function GridGamePage() {
     const pendingMarks: MarkedCell[] | undefined = pendingMove ? [{ x: pendingMove.x, y: pendingMove.y, mark: 'landing' }] : undefined
 
     return (
-        <div className={`game-page${pendingMove ? ' game-page--confirming' : ''}`}>
+        <div className={`game-page${pendingMove ? ' game-page--confirming' : ''}`} style={seatColourStyle(seatColours.colours)}>
             <h1 className="game-page__title">{gameState.name}</h1>
             <p>
-                Tap or click an unclaimed or enemy tile next to one of yours to spawn onto it, or two tiles away
-                (in a straight or diagonal line) to jump onto it - jumping leaves the tile you came from dead.
+                Tap a tile next to yours to spawn, or two away in a line to jump (the tile you jump from dies).
             </p>
             <p>
                 {gameState.isGameOver
                     ? gameState.resignedPlayerNumber
-                        ? `Game over - player ${gameState.resignedPlayerNumber} resigned.`
-                        : "Game over - no player can reach any other anymore."
+                        ? `Game over - player ${gameState.resignedPlayerNumber} ${resignedOnTime ? 'ran out of time' : 'resigned'}.`
+                        : "Game over - nobody can reach anybody else."
                     : isMyTurn
                         ? `Your turn - ${gameState.actionsRemainingInTurn} action${gameState.actionsRemainingInTurn === 1 ? '' : 's'} left.`
                         : `Waiting on player ${gameState.currentPlayerNumber}...`}
             </p>
+            {clock && (
+                <p className="score-prediction">
+                    {clock.clock.mode === 'Bank'
+                        ? `Chess clock: ${formatMs(clock.clock.baseMs)} each${clock.clock.incrementMs ? `, +${clock.clock.incrementMs / 1000}s a turn` : ''}.`
+                        : `${clock.clock.baseMs / 1000}s per turn.`}
+                    {' '}{clock.clock.mode === 'PerTurnSkip' ? 'Timing out skips the turn.' : 'Timing out loses.'}
+                </p>
+            )}
+            {autoResolving && (
+                <p className="presence-notice" role="status">
+                    Only forced trades remain - playing them out...
+                </p>
+            )}
             <PlayerLegend
+                timeLeft={timeLeft}
                 presence={presence}
                 myPlayerNumber={myPlayerNumber}
                 currentPlayerNumber={gameState.currentPlayerNumber}
                 resignedPlayerNumber={gameState.resignedPlayerNumber}
                 isGameOver={gameState.isGameOver}
+                onToggleLock={isSeated && !isGuest() ? toggleSeatLock : undefined}
             />
             {isSeated && !gameState.isGameOver && (
                 <div className="seat-panel">
                     <span>
-                        <span className="seat-panel__swatch" style={{ background: playerColour(myPlayerNumber) }} />
+                        <span className="seat-panel__swatch" style={{ background: playerSwatch(myPlayerNumber) }} />
                         You're player {myPlayerNumber}.
                     </span>
-                    {mySeatLocked
-                        ? <span>This seat is locked to your account.</span>
-                        : isGuest()
-                            ? <span className="seat-panel__hint">Create a named account to lock this seat to you.</span>
-                            : <>
-                                <button type="button" onClick={lockSeat}>Lock my seat</button>
-                                <span className="seat-panel__hint">
-                                    Keeps player {myPlayerNumber} yours whenever this game is reopened, so nobody else can take it.
-                                </span>
-                            </>}
                     {!resignOffered && !confirmingResign && (
                         <button type="button" className="seat-panel__resign" onClick={() => setConfirmingResign(true)}>Resign...</button>
                     )}
@@ -685,9 +749,8 @@ function GridGamePage() {
                 <div className="resign-confirm" role="alert">
                     <p>
                         <strong>{informallyDecidedFor === myPlayerNumber
-                            ? "The board suggests you're winning."
-                            : "This game isn't decided yet."}</strong> Resigning ends it for everyone right now, and
-                        scores the board as it stands - contested tiles go to nobody. It can't be undone.
+                            ? "You seem to be winning."
+                            : "Not decided yet."}</strong> Resigning ends the game now, scored as it stands (contested tiles count for nobody). Can't be undone.
                     </p>
                     <div className="resign-confirm__buttons">
                         <button type="button" onClick={() => setConfirmingResign(false)}>Keep playing</button>
@@ -697,7 +760,7 @@ function GridGamePage() {
             )}
             {myPlayerNumber === 0 && !gameState.isGameOver && (
                 <p className="seat-panel">
-                    You're watching - {gameState.isInviteOnly ? 'this game is invite-only.' : 'every seat is taken.'}
+                    Watching - {gameState.isInviteOnly ? 'invite-only.' : 'seats full.'}
                 </p>
             )}
             {presenceNotices.map(entry => (
@@ -705,8 +768,8 @@ function GridGamePage() {
                     {entry.status === 'disconnected'
                         ? `${playerLabel(entry)} has disconnected.`
                         : entry.status === 'away'
-                            ? `${playerLabel(entry)} isn't here right now - this seat is kept for them.`
-                            : `${playerLabel(entry)} isn't responding - they may have lost their connection.`}
+                            ? `${playerLabel(entry)} is away - seat kept for them.`
+                            : `${playerLabel(entry)} isn't responding.`}
                 </p>
             ))}
             {gameState.isGameOver && <FinalResultsSummary results={finalResults} />}
@@ -717,11 +780,12 @@ function GridGamePage() {
                     rematchGameId={rematchGameId}
                     mapId={initialState.mapId ?? null}
                     playerCount={gameState.playerCount}
+                    presence={presence}
                 />
             )}
             {resignOffered && (
                 <p className="resign-offer">
-                    The board suggests this game is decided in player {informallyDecidedFor}'s favour.{' '}
+                    Looks decided for player {informallyDecidedFor}.{' '}
                     <button type="button" onClick={resign}>Resign</button>
                 </p>
             )}
@@ -740,23 +804,39 @@ function GridGamePage() {
                 <p className="territory-toggle">
                     <label>
                         <input type="checkbox" checked={showOpponentMoves} onChange={event => toggleOpponentMoves(event.target.checked)} />
-                        Show where opponents could move next (rings in their colour: dotted to spawn, solid to jump - jumps can cross walls)
+                        Show opponents' possible moves (dotted: spawn, solid: jump)
                     </label>
                 </p>
             )}
+            {isSeated || presence.some(entry => entry.colourPrimary) ? (
+                <p className="territory-toggle">
+                    <label>
+                        <input type="checkbox" checked={useDefaultColours} onChange={event => setUseDefaultColours(event.target.checked)} />
+                        Show everyone in the default colours
+                    </label>
+                    {seatColours.clashed.length > 0 && !useDefaultColours && clashChoice === null && (
+                        <span className="score-prediction clash-prompt">
+                            {' '}Players {seatColours.clashed.join(', ')} picked colours too close to another player's. Show them in your default colours instead?
+                            This applies to any similar clash later in this game too, and only to what you see.
+                            {' '}<button type="button" onClick={() => answerClash(true)}>Use my defaults</button>
+                            {' '}<button type="button" onClick={() => answerClash(false)}>Keep their colours</button>
+                        </span>
+                    )}
+                </p>
+            ) : null}
             {analysis && !gameState.isGameOver && (
                 <p className="territory-toggle">
                     <label>
                         <input type="checkbox" checked={showTerritory} onChange={event => setShowTerritory(event.target.checked)} />
-                        Show territory (solid: only that player can reach it; striped: they could still be cut off)
+                        Show territory (solid: only they can reach; striped: could be cut off)
                     </label>
                 </p>
             )}
             {viewingHistory && (
                 <div className="history-banner">
                     <p>
-                        <strong>Replaying the move history</strong> - this is the board after action {historyPosition} of
-                        {' '}{history.length}. Moves can't be made until you go back to the live board.
+                        <strong>Replaying</strong> - after action {historyPosition} of
+                        {' '}{history.length}. Go back to live to move.
                     </p>
                     <button type="button" onClick={() => changeHistoryPosition(null)}>Back to live</button>
                 </div>
@@ -764,8 +844,7 @@ function GridGamePage() {
             {jumpChoice && !viewingHistory && (
                 <div className="jump-choice" role="alert">
                     <p>
-                        <strong>Pick the tile to jump from.</strong> {jumpChoice.origins.length} of your tiles can
-                        jump there - the arrows show each one. The tile you jump from dies.
+                        <strong>Pick the tile to jump from</strong> ({jumpChoice.origins.length} can; it dies).
                     </p>
                     <button type="button" onClick={() => setJumpChoice(null)}>Cancel</button>
                 </div>
@@ -779,6 +858,7 @@ function GridGamePage() {
                     jumpChoice={viewingHistory ? null : jumpChoice}
                     //The analysis describes the live board, so it would be misleading over a past one
                     analysis={showTerritory && !gameState.isGameOver && !viewingHistory ? analysis : null}
+                    blocked={gameState.isGameOver || viewingHistory ? null : analysis}
                     historyMarks={viewingHistory ? historyMarks : pendingMarks}
                     onTileClicked={onTileClicked}
                 />
@@ -788,8 +868,8 @@ function GridGamePage() {
             {pendingMove && !jumpChoice && (
                 <div className="move-confirm" role="alert">
                     <p>
-                        {pendingMove.kind === 'spawn' ? 'Spawn here?' : 'Jump here? The tile you jump from dies.'}
-                        {' '}Tap it again to confirm.
+                        {pendingMove.kind === 'spawn' ? 'Spawn here?' : 'Jump here? The origin tile dies.'}
+                        {' '}Tap again to confirm.
                     </p>
                     <div className="move-confirm__buttons">
                         <button type="button" onClick={() => setPendingMove(null)}>Cancel</button>
@@ -800,7 +880,7 @@ function GridGamePage() {
                 </div>
             )}
             {isGuest()
-                ? <p className="score-prediction">Create a named account to see and replay the move history.</p>
+                ? <p className="score-prediction">Named accounts get move history.</p>
                 : <details className="history-panel" open={historyOpen} onToggle={event => toggleHistory(event.currentTarget.open)}>
                     <summary>Move history</summary>
                     {history
@@ -810,11 +890,11 @@ function GridGamePage() {
                             onPositionChange={changeHistoryPosition}
                             currentTurnNumber={gameState.turnNumber}
                         />
-                        : <p className="score-prediction">{historyError ?? 'Loading the move history...'}</p>}
+                        : <p className="score-prediction">{historyError ?? 'Loading history...'}</p>}
                 </details>}
-            {!gameState.isGameOver && (analysis
-                ? <GameAnalysis analysis={analysis} myPlayerNumber={myPlayerNumber} />
-                : isGuest() && <p className="score-prediction">Create a named account to see live board analysis.</p>)}
+            {!gameState.isGameOver && (isGuest()
+                ? <p className="score-prediction">Named accounts get live statistics.</p>
+                : analysis && <GameAnalysis analysis={analysis} myPlayerNumber={myPlayerNumber} />)}
             {gameState.isGameOver && finalResults && <GameAnalysis analysis={finalResults.analysis} myPlayerNumber={myPlayerNumber} />}
         </div>
     )
@@ -822,7 +902,7 @@ function GridGamePage() {
 
 function FinalResultsSummary({ results }: { results: FinalResults | null }) {
     if (!results) {
-        return <p>{isGuest() ? "Create a named account to see final scores." : "Loading final scores..."}</p>
+        return <p>{isGuest() ? "Named accounts get final scores." : "Loading final scores..."}</p>
     }
     const { analysis } = results
     const atRisk = analysis.players.reduce((sum, player) => sum + player.uncontestedAtRisk, 0)
@@ -836,9 +916,9 @@ function FinalResultsSummary({ results }: { results: FinalResults | null }) {
             </p>
             {(analysis.contestedCells > 0 || atRisk > 0) && (
                 <p className="score-prediction">
-                    Scored as owned tiles plus uncontested territory. Still undecided when the game ended:
+                    Scored as owned plus uncontested tiles. Undecided at the end:
                     {' '}{analysis.contestedCells} contested tile{analysis.contestedCells === 1 ? '' : 's'} (scored for nobody)
-                    {atRisk > 0 && `, and ${atRisk} uncontested tile${atRisk === 1 ? '' : 's'} whose owner could still have been cut off (scored for them)`}.
+                    {atRisk > 0 && `, and ${atRisk} uncontested tile${atRisk === 1 ? '' : 's'} that could have been cut off (scored for the owner)`}.
                 </p>
             )}
         </>

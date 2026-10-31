@@ -21,6 +21,11 @@ function territoryAt(analysis: TerritoryMap, row: number, column: number): Terri
 	}
 }
 
+function isUncontested(analysis: TerritoryMap | null | undefined, owner: number, row: number, column: number) {
+	const insight = analysis?.insight[row]?.[column]
+	return owner === UNCLAIMED && (insight === CellInsight.UncontestedSecure || insight === CellInsight.UncontestedAtRisk)
+}
+
 /** Arrows from each candidate jump origin to the landing tile, drawn over the grid in tile units so they follow
  * whatever size the tiles render at. A colour-independent cue: a red highlight on a red tile is easy to miss, an
  * arrow pointing at the tile you clicked isn't */
@@ -56,7 +61,7 @@ function JumpArrows({ choice, rows, columns }: { choice: JumpChoice, rows: numbe
 	)
 }
 
-export default function Board({ board, playerCount, movesFor, opponentsOf, jumpChoice, analysis, historyMarks, onTileClicked }: {
+export default function Board({ board, playerCount, movesFor, opponentsOf, jumpChoice, analysis, blocked, historyMarks, onTileClicked }: {
 	board: number[][],
 	playerCount: number,
 	/** The player whose own legal moves to highlight - only set while it's their turn */
@@ -66,6 +71,8 @@ export default function Board({ board, playerCount, movesFor, opponentsOf, jumpC
 	jumpChoice: JumpChoice | null,
 	/** Shown as a territory overlay on unclaimed tiles when present */
 	analysis?: TerritoryMap | null,
+	/** The live board analysis, used to leave out moves the server refuses: onto ground only one player can reach */
+	blocked?: TerritoryMap | null,
 	/** Tiles to pick out: while stepping through the move history, or a move waiting to be confirmed */
 	historyMarks?: MarkedCell[],
 	/** Leave out for a board that's only a picture - its tiles then aren't buttons */
@@ -89,7 +96,7 @@ export default function Board({ board, playerCount, movesFor, opponentsOf, jumpC
 						const isJumpLanding = jumpChoice != null && jumpChoice.x === rowIndex && jumpChoice.y === columnIndex
 						const moveHint = isJumpOrigin ? 'jump-origin'
 							: isJumpLanding ? 'jump-landing'
-							: movesFor == null || jumpChoice ? undefined
+							: movesFor == null || jumpChoice || isUncontested(blocked, owner, rowIndex, columnIndex) ? undefined
 							: moveHintFor(board, movesFor, rowIndex, columnIndex)
 	
 						return (

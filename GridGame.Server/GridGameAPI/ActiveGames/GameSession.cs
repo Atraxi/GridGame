@@ -13,10 +13,6 @@ namespace GridGameAPI.ActiveGames
         /// while hub calls add and remove connections</summary>
         public ConcurrentDictionary<string, string> Connections { get; } = new();
 
-        /// <summary>Connection ids belonging to named (non-guest) accounts - live board analysis is a named-account
-        /// perk like final scores, so it's only ever broadcast to these</summary>
-        public ConcurrentDictionary<string, byte> NamedAccountConnections { get; } = new();
-
         /// <summary>Player number each user owns tiles as. Locked seats (see GameSeat) are filled in when the session
         /// is loaded; the rest are handed out in join order. Only mutated under MembershipLock</summary>
         public ConcurrentDictionary<string, int> PlayerNumbers { get; } = new();
@@ -56,6 +52,16 @@ namespace GridGameAPI.ActiveGames
 
         /// <summary>BoardAnalysis of the current board, recomputed after every move. Only written under MoveLock</summary>
         public BoardAnalysis.Result? Analysis { get; set; }
+
+        /// <summary>True while a forced ending is being played out for the players (see AutoResolve): moves and
+        /// resignations are refused until it finishes. Only written under MoveLock</summary>
+        public bool AutoResolving { get; set; }
+
+        /// <summary>Set by the move that made the ending forced; GridGameHub picks it up once it has released MoveLock</summary>
+        public List<ForcedMove>? PendingAutoPlan { get; set; }
+
+        /// <summary>Preferred tile colours per user id (primary, optional secondary), for the legend and board</summary>
+        public ConcurrentDictionary<string, (string? Primary, string? Secondary)> Colours { get; } = new();
 
         /// <summary>Guards board mutation and the reachability/scoring analysis that follows it - SignalR does not
         /// serialize concurrent hub invocations, and BFS work over the whole board is expensive enough that two
@@ -101,12 +107,12 @@ namespace GridGameAPI.ActiveGames
             {
                 if (!seatHolders.TryGetValue(playerNumber, out var userId))
                 {
-                    return (object)new { playerNumber, userName = (string?)null, status = "open", locked = false };
+                    return (object)new { playerNumber, userName = (string?)null, status = "open", locked = false, colourPrimary = (string?)null, colourSecondary = (string?)null };
                 }
                 var status = !connectedUsers.Contains(userId) ? (SeenUsers.ContainsKey(userId) ? "disconnected" : "away")
                     : UnresponsiveUsers.ContainsKey(userId) ? "unresponsive"
                     : "connected";
-                return (object)new { playerNumber, userName = UserNames.GetValueOrDefault(userId), status, locked = LockedSeats.ContainsKey(userId) };
+                return (object)new { playerNumber, userName = UserNames.GetValueOrDefault(userId), status, locked = LockedSeats.ContainsKey(userId), colourPrimary = Colours.GetValueOrDefault(userId).Primary, colourSecondary = Colours.GetValueOrDefault(userId).Secondary };
             }).ToArray();
         }
     }

@@ -1,6 +1,6 @@
 import type { CSSProperties } from "react";
 import type { OpponentMove } from "../../model/moves";
-import { playerColour } from "./playerColour";
+import { playerColour, playerFill } from "./playerColour";
 
 export const UNCLAIMED = 0
 export const DEAD = -1
@@ -62,6 +62,7 @@ export default function Tile({ owner, edges, moveHint, territory, opponentMove, 
 	const style: Record<string, string> = {}
 
 	if (isClaimed) {
+		style['--player-fill'] = playerFill(owner)
 		classes.push(...SIDES.filter(side => edges[side]).map(side => `edge-${side}`))
 		classes.push(...CORNERS.filter(([, a, b]) => edges[a] && edges[b]).map(([corner]) => `corner-${corner}`))
 	} else {

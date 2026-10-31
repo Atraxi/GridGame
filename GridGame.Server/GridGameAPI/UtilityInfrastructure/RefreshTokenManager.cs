@@ -46,6 +46,16 @@ namespace GridGameAPI.UtilityInfrastructure
             return stored.Player;
         }
 
+        /// <summary>Who a usable refresh token belongs to, without using it up</summary>
+        public async Task<Player?> PeekAsync(string rawToken)
+        {
+            var hash = Hash(rawToken);
+            return await _context.RefreshTokens
+                .Where(refreshToken => refreshToken.TokenHash == hash && refreshToken.RevokedAt == null && refreshToken.ExpiresAt > DateTime.UtcNow)
+                .Select(refreshToken => refreshToken.Player)
+                .SingleOrDefaultAsync();
+        }
+
         /// <summary>Revokes one refresh token (logging out the device holding it). Unknown or already-revoked tokens
         /// are ignored - the outcome the caller wants holds either way</summary>
         public async Task RevokeAsync(string rawToken)

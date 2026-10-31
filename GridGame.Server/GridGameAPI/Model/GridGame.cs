@@ -55,5 +55,25 @@ namespace GridGameAPI.Model
         /// <summary>Set once someone starts a rematch of this finished game (see GridGameHub.Rematch), so anyone who
         /// opens it afterwards can follow on to the new one, and a second rematch request joins it instead</summary>
         public int? RematchGameId { get; set; }
+
+        public ClockMode ClockMode { get; set; }
+
+        /// <summary>Bank mode: each player's starting time. PerTurn mode: the limit on every turn</summary>
+        public int ClockBaseSeconds { get; set; }
+
+        /// <summary>Bank mode only: added to a player's bank each time they finish a turn</summary>
+        public int ClockIncrementSeconds { get; set; }
+
+        /// <summary>Bank mode: time left per player (index 0 = player 1) as of the start of the current turn. See GameClock</summary>
+        [JsonIgnore]
+        public int[]? ClockRemainingMs { get; set; }
+
+        /// <summary>When the current player's clock started running (UTC). Null until the first turn has ended, and once
+        /// the game is over</summary>
+        [JsonIgnore]
+        public DateTime? TurnStartedUtc { get; set; }
+
+        /// <summary>With ResignedPlayerNumber: the player lost by running out of time rather than by resigning</summary>
+        public bool ResignedOnTime { get; set; }
     }
 }

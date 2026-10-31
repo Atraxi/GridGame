@@ -19,4 +19,7 @@ export type GridGame = {
 	mapId?: number | null,
 	/** Set once a rematch of this finished game has been started */
 	rematchGameId?: number | null,
+	/** Turn timer chosen when hosting - see GameClock.cs */
+	clockMode?: 'None' | 'Bank' | 'PerTurn',
+	resignedOnTime?: boolean,
 }

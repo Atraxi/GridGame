@@ -49,6 +49,19 @@
 	line-height: 1.25;
 }
 
+.player-legend__lock {
+	flex: none;
+	padding: 0;
+	border: 0;
+	background: none;
+	font-size: 14px;
+	line-height: 1;
+}
+
+button.player-legend__lock {
+	cursor: pointer;
+}
+
 .player-legend__name {
 	overflow-wrap: anywhere;
 }

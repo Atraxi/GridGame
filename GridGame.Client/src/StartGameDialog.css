@@ -38,6 +38,11 @@
 
 .dialog__field input,
 .dialog__field select {
+	/* A long option label must not widen the dialog */
+	box-sizing: border-box;
+	width: 100%;
+	min-width: 0;
+	text-overflow: ellipsis;
 	font: inherit;
 	/* Below 16px, iOS zooms the page in on focus */
 	font-size: 16px;

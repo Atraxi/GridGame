@@ -1,7 +1,7 @@
 import { useEffect } from "react"
 import type { GameAction } from "../model/history"
 import { UNCLAIMED } from "./game_board/Tile"
-import { playerColour } from "./game_board/playerColour"
+import { playerSwatch } from "./game_board/playerColour"
 import "./MoveHistory.css"
 
 //Non-breaking spaces keep a coordinate on one line when a narrow screen wraps the description
@@ -19,7 +19,7 @@ function describe(action: GameAction) {
 }
 
 function Swatch({ player }: { player: number }) {
-	return <span className="move-history__swatch" style={{ background: playerColour(player) }} />
+	return <span className="move-history__swatch" style={{ background: playerSwatch(player) }} />
 }
 
 /**

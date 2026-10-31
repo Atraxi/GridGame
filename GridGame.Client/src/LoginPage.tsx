@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from "react"
 import { Link, useNavigate, useSearchParams } from "react-router"
-import { isGuest, postToUsers, startNewGuestSession } from "./auth"
+import { claimGuest, getGuestRefreshToken, guestGameCount, isGuest, postToUsers, startNewGuestSession } from "./auth"
 import "./LoginPage.css"
 
 type Mode = 'create' | 'login'
@@ -12,10 +12,29 @@ export default function LoginPage() {
 	const [mode, setMode] = useState<Mode>(expired ? 'login' : 'create')
 	const [form, setForm] = useState({ userName: '', email: '', password: '' })
 	const [error, setError] = useState<string | null>(null)
+	//Set after logging in from a guest session that had played games, which the login would otherwise abandon
+	const [guestToClaim, setGuestToClaim] = useState<{ token: string, games: number } | null>(null)
 	const navigate = useNavigate()
 	const returnTo = searchParams.get('returnTo')
 	//Only ever an in-app path, so this page can't be used to bounce someone off to another site
 	const safeReturnTo = returnTo?.startsWith('/') && !returnTo.startsWith('//') ? returnTo : null
+
+	const finish = () => navigate(safeReturnTo ?? '/account')
+
+	if (guestToClaim) {
+		const { token, games } = guestToClaim
+		return (
+			<section className="auth-page">
+				<h1>Keep your guest games?</h1>
+				<p>This guest session has played {games} game{games === 1 ? '' : 's'}. Add {games === 1 ? 'it' : 'them'} to your account, or lose {games === 1 ? 'it' : 'them'}.</p>
+				<div className="auth-page__form">
+					<button type="button" onClick={() => claimGuest(token).then(finish).catch(err => setError(err.message))}>Add them to my account</button>
+					<button type="button" onClick={finish}>No thanks</button>
+				</div>
+				{error && <p className="auth-page__error">{error}</p>}
+			</section>
+		)
+	}
 
 	if (!isGuest()) {
 		return (
@@ -40,8 +59,17 @@ export default function LoginPage() {
 
 	const submit = (event: FormEvent) => {
 		event.preventDefault()
+		//Creating an account promotes the guest in place, so only logging in to an existing one leaves a guest behind
+		const guestToken = mode === 'login' ? getGuestRefreshToken() : null
 		postToUsers(mode === 'create' ? 'Promote' : 'Login', form)
-			.then(() => navigate(safeReturnTo ?? '/account'))
+			.then(async () => {
+				const games = guestToken ? await guestGameCount(guestToken).catch(() => 0) : 0
+				if (guestToken && games > 0) {
+					setGuestToClaim({ token: guestToken, games })
+				} else {
+					finish()
+				}
+			})
 			.catch(err => setError(err.message))
 	}
 
@@ -55,10 +83,10 @@ export default function LoginPage() {
 		<section className="auth-page">
 			{expired && (
 				<div className="auth-page__notice">
-					<p>Your session has expired. Log in again to pick up where you left off.</p>
+					<p>Session expired. Log in to continue.</p>
 					<p>
 						Or <button type="button" className="auth-page__link-button" onClick={continueAsGuest}>continue as a new guest</button> instead
-						- you'll start fresh, without this account's games or stats.
+						- you'll start fresh.
 					</p>
 				</div>
 			)}

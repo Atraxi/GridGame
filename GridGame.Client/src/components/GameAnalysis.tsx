@@ -1,5 +1,5 @@
 import type { BoardAnalysis, PlayerAnalysis, VictoryStatus } from "../model/analysis"
-import { playerColour } from "./game_board/playerColour"
+import { playerSwatch } from "./game_board/playerColour"
 import "./GameAnalysis.css"
 
 const STATUS_LABELS: Record<VictoryStatus, string> = {
@@ -13,14 +13,14 @@ type Row = { label: string, hint: string, value: (player: PlayerAnalysis) => num
 
 const ROWS: Row[] = [
 	{ label: 'Owned', hint: 'Tiles held right now', value: p => p.owned },
-	{ label: '- untouchable', hint: 'Owned tiles no opponent can ever get within spawn/jump range of', value: p => p.ownedUntouchable },
-	{ label: '- threatened', hint: 'Owned tiles an opponent could still get into range of and kill', value: p => p.ownedThreatened },
-	{ label: 'Uncontested, secure', hint: "Unclaimed tiles only this player can reach, by a route nobody can interfere with", value: p => p.uncontestedSecure },
-	{ label: 'Uncontested, at risk', hint: "Unclaimed tiles only this player can reach, but only through threatened tiles or contested ground - they could be cut off", value: p => p.uncontestedAtRisk },
-	{ label: 'Contested in reach', hint: 'Unclaimed tiles this player and at least one opponent can both reach - a race', value: p => p.contestedReachable },
+	{ label: '- untouchable', hint: 'Owned tiles no opponent can ever reach', value: p => p.ownedUntouchable },
+	{ label: '- threatened', hint: 'Owned tiles an opponent could still reach', value: p => p.ownedThreatened },
+	{ label: 'Uncontested, secure', hint: "Unclaimed tiles only this player can reach, safely", value: p => p.uncontestedSecure },
+	{ label: 'Uncontested, at risk', hint: "Unclaimed tiles only this player can reach, but they could be cut off", value: p => p.uncontestedAtRisk },
+	{ label: 'Contested in reach', hint: 'Unclaimed tiles several players can reach - a race', value: p => p.contestedReachable },
 	{ label: 'Floor', hint: 'Untouchable + secure: kept no matter what anyone else does', value: p => p.floor, emphasis: true },
-	{ label: 'Projected', hint: 'Owned + all uncontested: the score if the game ended now, treating threats on both sides as cancelling out', value: p => p.projected, emphasis: true },
-	{ label: 'Ceiling', hint: 'Owned + everything reachable, contested included: the most this player could finish with', value: p => p.ceiling, emphasis: true },
+	{ label: 'Projected', hint: 'Owned + all uncontested: the score if it ended now', value: p => p.projected, emphasis: true },
+	{ label: 'Ceiling', hint: 'Owned + everything reachable: the most they could finish with', value: p => p.ceiling, emphasis: true },
 	{ label: 'Status', hint: 'Leading: best projection. Decided: projection beats every opponent\'s ceiling (only threats could swing it). Locked in: floor beats every opponent\'s ceiling', value: p => STATUS_LABELS[p.status] },
 ]
 
@@ -41,7 +41,7 @@ export default function GameAnalysis({ analysis, myPlayerNumber }: { analysis: B
 							<th scope="col"></th>
 							{players.map(player => (
 								<th scope="col" key={player.playerNumber}>
-									<span className="game-analysis__swatch" style={{ background: playerColour(player.playerNumber) }} />
+									<span className="game-analysis__swatch" style={{ background: playerSwatch(player.playerNumber) }} />
 									P{player.playerNumber}{player.playerNumber === myPlayerNumber && ' (you)'}
 								</th>
 							))}
@@ -69,9 +69,7 @@ export default function GameAnalysis({ analysis, myPlayerNumber }: { analysis: B
 					{ROWS.map(row => <div key={row.label}><dt>{row.label.replace(/^- /, 'Owned, ')}</dt><dd>{row.hint}</dd></div>)}
 				</dl>
 				<p className="game-analysis__note">
-					Indicative only. A jump kills the tile it leaves from, so a tile whose only ways out are jumps in
-					different directions can really only take one of them - these stats count every way out, which can
-					overstate reach in narrow corridors. Kill-for-kill trades are also ignored.
+					Indicative only: every way out of a tile is counted though a jump kills its origin, so narrow corridors may be overstated. Kill-for-kill trades are ignored.
 				</p>
 			</details>
 		</section>

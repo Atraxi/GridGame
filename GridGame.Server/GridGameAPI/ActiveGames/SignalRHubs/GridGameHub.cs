@@ -35,7 +35,7 @@ namespace GridGameAPI.ActiveGames.SignalRHubs
                         .Single(game => game.Id == gameId);
                     var lockedSeats = _gameContext.GameSeats
                         .Where(seat => seat.GridGameId == gameId)
-                        .Select(seat => new { seat.PlayerNumber, seat.PlayerId, seat.Player!.UserName })
+                        .Select(seat => new { seat.PlayerNumber, seat.PlayerId, seat.Player!.UserName, seat.Player.ColourPrimary, seat.Player.ColourSecondary })
                         .ToList();
                     var session = new GameSession
                     {
@@ -46,14 +46,19 @@ namespace GridGameAPI.ActiveGames.SignalRHubs
                             ? _gameContext.GameInvites.Where(invite => invite.GridGameId == gameId).Select(invite => invite.PlayerId).ToHashSet()
                             : null,
                     };
-                    //Only named accounts can lock a seat, so every lock holder is one. Anyone who already moved from
-                    //their seat counts as having played, so an opponent's first move after a reload still records them
+                    //Anyone who already moved from their seat counts as having played, so an opponent's first move after
+                    //a reload still records them. Guests hold locks too (see LockCallersSeat) but aren't recorded as opponents
                     var movedPlayers = game.MoveLog.Select(action => action.Player).ToHashSet();
                     foreach (var seat in lockedSeats)
                     {
                         session.PlayerNumbers[seat.PlayerId] = seat.PlayerNumber;
                         session.LockedSeats[seat.PlayerId] = 0;
                         session.UserNames[seat.PlayerId] = seat.UserName ?? "";
+                        session.Colours[seat.PlayerId] = (seat.ColourPrimary, seat.ColourSecondary);
+                        if (seat.UserName?.StartsWith(Constants.GuestUserNamePrefix) == true)
+                        {
+                            continue;
+                        }
                         session.NamedUsers[seat.PlayerId] = 0;
                         if (movedPlayers.Contains(seat.PlayerNumber))
                         {
@@ -68,7 +73,6 @@ namespace GridGameAPI.ActiveGames.SignalRHubs
                     session.SeenUsers[userId] = 0;
                     if (IsNamedAccount)
                     {
-                        session.NamedAccountConnections[Context.ConnectionId] = 0;
                         session.NamedUsers[userId] = 0;
                     }
                     session.UserNames[userId] = Context.User?.FindFirst(ClaimTypes.Name)?.Value ?? "";
@@ -77,6 +81,11 @@ namespace GridGameAPI.ActiveGames.SignalRHubs
                     //while unresponsive no longer matters
                     session.UnresponsiveUsers.TryRemove(userId, out _);
                 });
+
+            //Looked up on every connect, so a colour changed since the last visit shows up
+            var colours = await _gameContext.Users.AsNoTracking().Where(user => user.Id == userId)
+                .Select(user => new { user.ColourPrimary, user.ColourSecondary }).SingleOrDefaultAsync();
+            session.Colours[userId] = (colours?.ColourPrimary, colours?.ColourSecondary);
 
             await BroadcastPresence(session);
             return session.PlayerNumbers.GetValueOrDefault(userId, 0);
@@ -142,14 +151,18 @@ namespace GridGameAPI.ActiveGames.SignalRHubs
                     turnNumber = game.TurnNumber,
                     isGameOver = game.IsGameOver,
                     resignedPlayerNumber = game.ResignedPlayerNumber,
+                    resignedOnTime = game.ResignedOnTime,
+                    autoResolving = session.AutoResolving,
+                    clock = GameClock.Wire(game, DateTime.UtcNow),
                     rematchGameId = game.RematchGameId,
                     stateHash = session.StateHash,
                     informallyDecidedFor = session.Analysis?.InformallyDecidedFor,
                     presence = session.Presence(),
-                    //Named-account perk, same as the pushed boardAnalysisUpdated
-                    analysis = session.NamedAccountConnections.ContainsKey(Context.ConnectionId) && session.Analysis is not null
-                        ? BoardAnalysis.ToWire(session.Analysis)
-                        : null,
+                    analysis = session.Analysis is not null ? BoardAnalysis.ToWire(session.Analysis) : null,
+                    clashChoice = (await _gameContext.ClashChoices.AsNoTracking()
+                        .Where(choice => choice.GridGameId == game.Id && choice.PlayerId == Context.UserIdentifier)
+                        .Select(choice => (bool?)choice.SwitchToDefaults)
+                        .SingleOrDefaultAsync()),
                 };
             }
             finally
@@ -187,6 +200,12 @@ namespace GridGameAPI.ActiveGames.SignalRHubs
         /// </summary>
         public async Task RequestMove(int x, int y)
         {
+            await RequestMoveCore(x, y);
+            await RunAutoResolve();
+        }
+
+        private async Task RequestMoveCore(int x, int y)
+        {
             var session = _sessionManager.GetByConnectionId(Context.ConnectionId);
             if (session is null)
             {
@@ -209,6 +228,12 @@ namespace GridGameAPI.ActiveGames.SignalRHubs
                 if (!GridGameMoves.InBounds(board, x, y) || board[x, y] == TileState.Dead || board[x, y] == player)
                 {
                     await Clients.Caller.SendAsync("moveRejected", new { x, y, reason = "unreachable" });
+                    return;
+                }
+
+                if (GridGameMoves.IsBlocked(board, session.Analysis?.Insight, x, y))
+                {
+                    await Clients.Caller.SendAsync("moveRejected", new { x, y, reason = "uncontested" });
                     return;
                 }
 
@@ -249,6 +274,12 @@ namespace GridGameAPI.ActiveGames.SignalRHubs
         /// <summary>Completes a jump once the caller has picked which of several eligible tiles to jump from</summary>
         public async Task ConfirmJump(int originX, int originY, int x, int y)
         {
+            await ConfirmJumpCore(originX, originY, x, y);
+            await RunAutoResolve();
+        }
+
+        private async Task ConfirmJumpCore(int originX, int originY, int x, int y)
+        {
             var session = _sessionManager.GetByConnectionId(Context.ConnectionId);
             if (session is null)
             {
@@ -268,6 +299,12 @@ namespace GridGameAPI.ActiveGames.SignalRHubs
                     !GridGameMoves.IsValidJump(board, player, originX, originY, x, y))
                 {
                     await Clients.Caller.SendAsync("moveRejected", new { x, y, reason = "unreachable" });
+                    return;
+                }
+
+                if (GridGameMoves.IsBlocked(board, session.Analysis?.Insight, x, y))
+                {
+                    await Clients.Caller.SendAsync("moveRejected", new { x, y, reason = "uncontested" });
                     return;
                 }
 
@@ -297,18 +334,11 @@ namespace GridGameAPI.ActiveGames.SignalRHubs
             try
             {
                 var game = session.GridGame;
-                if (game.IsGameOver || !session.PlayerNumbers.TryGetValue(Context.UserIdentifier!, out var player))
+                if (game.IsGameOver || session.AutoResolving || !session.PlayerNumbers.TryGetValue(Context.UserIdentifier!, out var player))
                 {
                     return;
                 }
-
-                var previousStateHash = session.StateHash;
-                game.MoveLog.Add(GameAction.Resignation(game.TurnNumber, player));
-                game.ResignedPlayerNumber = player;
-                EndGame(session);
-                _listVersion.Bump();
-                await BroadcastStateChange(session, [], previousStateHash, requiresAck: true);
-                await PersistGame(game);
+                await EndByResignation(session, player, onTime: false);
             }
             finally
             {
@@ -316,10 +346,137 @@ namespace GridGameAPI.ActiveGames.SignalRHubs
             }
         }
 
+        /// <summary>Ends the game with this player as the loser, whether they conceded or ran out of time. Call under MoveLock</summary>
+        private async Task EndByResignation(GameSession session, int player, bool onTime)
+        {
+            var game = session.GridGame;
+            var previousStateHash = session.StateHash;
+            game.MoveLog.Add(GameAction.Resignation(game.TurnNumber, player));
+            game.ResignedPlayerNumber = player;
+            game.ResignedOnTime = onTime;
+            EndGame(session);
+            _listVersion.Bump();
+            await BroadcastStateChange(session, [], previousStateHash, requiresAck: true);
+            await PersistGame(game);
+        }
+
+        /// <summary>A timeout takes effect: the player loses, or in PerTurnSkip mode their turn just passes on. Call under MoveLock</summary>
+        private async Task ExpireTurn(GameSession session, int player)
+        {
+            var game = session.GridGame;
+            if (game.ClockMode != ClockMode.PerTurnSkip)
+            {
+                await EndByResignation(session, player, onTime: true);
+                return;
+            }
+            var previousStateHash = session.StateHash;
+            if (GridGameMoves.NextMover(game.GameBoard, game.PlayerCount, player, session.Analysis!.Insight) is not { } next)
+            {
+                return;
+            }
+            GameClock.EndTurn(game, player, DateTime.UtcNow);
+            game.CurrentPlayerNumber = next;
+            game.ActionsRemainingInTurn = game.ActionsPerTurn;
+            game.TurnNumber++;
+            _listVersion.Bump();
+            await BroadcastStateChange(session, [], previousStateHash, requiresAck: true);
+            await PersistGame(game);
+        }
+
+        /// <summary>Called by a client whose countdown for the current player has hit zero. The server's own clock decides
+        /// - an early or stale claim does nothing - and the timeout takes effect (see ExpireTurn)</summary>
+        public async Task ClaimTimeout()
+        {
+            var session = _sessionManager.GetByConnectionId(Context.ConnectionId);
+            if (session is null)
+            {
+                return;
+            }
+
+            await session.MoveLock.WaitAsync();
+            try
+            {
+                var game = session.GridGame;
+                if (!session.AutoResolving && GameClock.IsExpired(game, DateTime.UtcNow))
+                {
+                    await ExpireTurn(session, game.CurrentPlayerNumber);
+                }
+            }
+            finally
+            {
+                session.MoveLock.Release();
+            }
+        }
+
+        private const int AutoResolveStepMs = 500;
+
+        /// <summary>Plays out a forced ending (see AutoResolve) one jump at a time at roughly the pace of the home page's
+        /// demo clips, with moves and resignations refused meanwhile. Runs after the move that made the ending forced
+        /// has released MoveLock; the lock is only held for each individual jump so reconnecting players aren't kept waiting</summary>
+        private async Task RunAutoResolve()
+        {
+            var session = _sessionManager.GetByConnectionId(Context.ConnectionId);
+            if (session is null)
+            {
+                return;
+            }
+
+            List<ForcedMove> plan;
+            await session.MoveLock.WaitAsync();
+            try
+            {
+                if (session.PendingAutoPlan is not { } pending || session.GridGame.IsGameOver)
+                {
+                    return;
+                }
+                plan = pending;
+                session.PendingAutoPlan = null;
+                session.AutoResolving = true;
+                await Clients.Clients(session.Connections.Keys.ToList()).SendAsync("autoResolveStarted");
+            }
+            finally
+            {
+                session.MoveLock.Release();
+            }
+
+            try
+            {
+                foreach (var move in plan)
+                {
+                    await Task.Delay(AutoResolveStepMs);
+                    await session.MoveLock.WaitAsync();
+                    try
+                    {
+                        var game = session.GridGame;
+                        if (game.IsGameOver || game.CurrentPlayerNumber != move.Player)
+                        {
+                            break;
+                        }
+                        await ApplyMove(session, [(move.OriginX, move.OriginY, TileState.Dead), (move.X, move.Y, TileState.Dead)]);
+                    }
+                    finally
+                    {
+                        session.MoveLock.Release();
+                    }
+                }
+            }
+            finally
+            {
+                await session.MoveLock.WaitAsync();
+                session.AutoResolving = false;
+                //The clock stood still meanwhile, so whoever is on the move starts afresh
+                if (session.GridGame.TurnStartedUtc is not null)
+                {
+                    session.GridGame.TurnStartedUtc = DateTime.UtcNow;
+                }
+                session.MoveLock.Release();
+            }
+        }
+
         /// <summary>Hosts a new game for everyone in this finished one - on the same map unless another published map
         /// is given - and pulls them into it with rematchCreated. Seats aren't carried over: they're handed out in the
         /// order people arrive, as in any new game, so anyone who doesn't follow leaves their seat to whoever joins
-        /// next. For the same reason the rematch is open to anyone, even if this game was invite-only. Hosting is a
+        /// next. An invite-only game's rematch keeps the same invite list. Hosting is a
         /// named-account privilege, as for GamesController.CreateFromMap. Only one rematch is ever made per game -
         /// asking again returns the existing one</summary>
         /// <param name="mapId">Null for the map this game was hosted from</param>
@@ -363,8 +520,27 @@ namespace GridGameAPI.ActiveGames.SignalRHubs
                     return new { error };
                 }
 
-                var rematch = GameHosting.NewGame(map, GameHosting.RematchName(game.Name), isInviteOnly: false);
+                //A smaller map would eject the players beyond its seat count, so it's only allowed once enough of them have
+                //left that everyone still here fits
+                var online = session.PlayerNumbers.Keys.Count(seated => session.ConnectionsFor(seated).Any());
+                var someoneOffline = online < session.PlayerNumbers.Count;
+                if (map.PlayerCount != game.PlayerCount && !(someoneOffline && map.PlayerCount >= online))
+                {
+                    return new { error = someoneOffline
+                        ? $"That map has too few seats for the {online} players still here - pick one with at least {online}."
+                        : $"A rematch needs a map with {game.PlayerCount} players, the same as this game." };
+                }
+
+                //Named for the map actually being played. The invite list, if any, carries over: the rematch is as
+                //private as this game was, and a public one would show up in everyone's list
+                var rematchName = map.Id == game.MapId ? GameHosting.RematchName(game.Name) : GameHosting.RematchName(map.Name);
+                var rematch = GameHosting.NewGame(map, rematchName, isInviteOnly: game.IsInviteOnly);
+                GameClock.Configure(rematch, game.ClockMode, game.ClockBaseSeconds, game.ClockIncrementSeconds);
                 _gameContext.GridGames.Add(rematch);
+                if (game.IsInviteOnly && session.InvitedUserIds is { } invitees)
+                {
+                    _gameContext.GameInvites.AddRange(invitees.Select(id => new GameInvite { Game = rematch, PlayerId = id }));
+                }
                 await _gameContext.SaveChangesAsync();
                 game.RematchGameId = rematch.Id;
                 _listVersion.Bump();
@@ -387,6 +563,10 @@ namespace GridGameAPI.ActiveGames.SignalRHubs
             {
                 reason = "gameOver";
             }
+            else if (session.AutoResolving)
+            {
+                reason = "autoResolving";
+            }
             else if (!session.PlayerNumbers.TryGetValue(Context.UserIdentifier!, out var player))
             {
                 reason = "spectating";
@@ -394,6 +574,12 @@ namespace GridGameAPI.ActiveGames.SignalRHubs
             else if (player != session.GridGame.CurrentPlayerNumber)
             {
                 reason = "notYourTurn";
+            }
+            else if (GameClock.IsExpired(session.GridGame, DateTime.UtcNow))
+            {
+                //Too late: the clock ran out before this move arrived
+                await ExpireTurn(session, player);
+                reason = session.GridGame.IsGameOver ? "gameOver" : "notYourTurn";
             }
             else
             {
@@ -438,27 +624,20 @@ namespace GridGameAPI.ActiveGames.SignalRHubs
 
             game.ActionsRemainingInTurn--;
             session.Analysis = BoardAnalysis.Compute(game.GameBoard, game.PlayerCount);
+            var insight = session.Analysis.Insight;
 
             if (GameEndAnalysis.IsGameOver(game.GameBoard, game.PlayerCount))
             {
                 EndGame(session);
             }
-            else if (game.ActionsRemainingInTurn <= 0)
+            //A player left with only moves into uncontested ground (see GridGameMoves.IsBlocked) has nothing worth doing
+            //with the actions they have left, so their turn ends early rather than leaving them stuck
+            else if (game.ActionsRemainingInTurn <= 0 || !GridGameMoves.HasAnyLegalMove(game.GameBoard, game.CurrentPlayerNumber, insight))
             {
-                var nextPlayer = game.CurrentPlayerNumber;
-                var foundMover = false;
-                for (var attempt = 0; attempt < game.PlayerCount; attempt++)
+                var mover = game.CurrentPlayerNumber;
+                if (GridGameMoves.NextMover(game.GameBoard, game.PlayerCount, mover, insight) is { } nextPlayer)
                 {
-                    nextPlayer = nextPlayer % game.PlayerCount + 1;
-                    if (GridGameMoves.HasAnyLegalMove(game.GameBoard, nextPlayer))
-                    {
-                        foundMover = true;
-                        break;
-                    }
-                }
-
-                if (foundMover)
-                {
+                    GameClock.EndTurn(game, mover, DateTime.UtcNow, paused: session.AutoResolving);
                     game.CurrentPlayerNumber = nextPlayer;
                     game.ActionsRemainingInTurn = game.ActionsPerTurn;
                     game.TurnNumber++;
@@ -469,6 +648,12 @@ namespace GridGameAPI.ActiveGames.SignalRHubs
                     //least one legal move) - treated as game over defensively rather than stalling regardless
                     EndGame(session);
                 }
+            }
+
+            if (!game.IsGameOver && !session.AutoResolving)
+            {
+                session.PendingAutoPlan = AutoResolve.Plan(game.GameBoard, game.PlayerCount, game.CurrentPlayerNumber,
+                    game.ActionsRemainingInTurn, game.ActionsPerTurn, insight);
             }
 
             var turnEnded = game.IsGameOver || game.TurnNumber != previousTurnNumber;
@@ -485,6 +670,11 @@ namespace GridGameAPI.ActiveGames.SignalRHubs
                 await PersistGame(game);
             }
             await RecordOpponents(session);
+            //A guest who has played leaves a record, so a named account they later log in to can claim the game
+            if (!IsNamedAccount)
+            {
+                await LockCallersSeat(session);
+            }
         }
 
         /// <summary>Adds the caller and every other named account that has moved in this game to each other's
@@ -533,13 +723,57 @@ namespace GridGameAPI.ActiveGames.SignalRHubs
         }
 
         /// <summary>Ties the caller's seat to their account for good: from now on it's theirs whenever the game is
-        /// reopened, and nobody else can be given it. Named accounts only, see GameSeat</summary>
+        /// reopened, and nobody else can be given it. Guests are locked automatically once they've moved (see ApplyMove)</summary>
         public async Task LockSeat()
         {
             var session = _sessionManager.GetByConnectionId(Context.ConnectionId);
+            if (session is null || session.GridGame.IsGameOver)
+            {
+                return;
+            }
+            await LockCallersSeat(session);
+        }
+
+        /// <summary>Remembers this account's answer to the colour-clash prompt for this game (see ClashChoice)</summary>
+        public async Task SetClashChoice(bool switchToDefaults)
+        {
+            var session = _sessionManager.GetByConnectionId(Context.ConnectionId);
+            if (session is null)
+            {
+                return;
+            }
+            var (gameId, userId) = (session.GridGame.Id, Context.UserIdentifier!);
+            var choice = await _gameContext.ClashChoices.SingleOrDefaultAsync(row => row.GridGameId == gameId && row.PlayerId == userId);
+            if (choice is null)
+            {
+                _gameContext.ClashChoices.Add(new ClashChoice { GridGameId = gameId, PlayerId = userId, SwitchToDefaults = switchToDefaults });
+            }
+            else
+            {
+                choice.SwitchToDefaults = switchToDefaults;
+            }
+            await _gameContext.SaveChangesAsync();
+        }
+
+        /// <summary>Lets go of a locked seat, so it's handed out like any other once the game is reopened. Named accounts
+        /// only - a guest's lock is just the record of their games</summary>
+        public async Task UnlockSeat()
+        {
+            var session = _sessionManager.GetByConnectionId(Context.ConnectionId);
             var userId = Context.UserIdentifier!;
-            if (session is null || !IsNamedAccount || session.GridGame.IsGameOver ||
-                !session.PlayerNumbers.TryGetValue(userId, out var playerNumber) || session.LockedSeats.ContainsKey(userId))
+            if (session is null || !IsNamedAccount || !session.LockedSeats.ContainsKey(userId))
+            {
+                return;
+            }
+            await _gameContext.GameSeats.Where(seat => seat.GridGameId == session.GridGame.Id && seat.PlayerId == userId).ExecuteDeleteAsync();
+            session.LockedSeats.TryRemove(userId, out _);
+            await BroadcastPresence(session);
+        }
+
+        private async Task LockCallersSeat(GameSession session)
+        {
+            var userId = Context.UserIdentifier!;
+            if (!session.PlayerNumbers.TryGetValue(userId, out var playerNumber) || session.LockedSeats.ContainsKey(userId))
             {
                 return;
             }
@@ -562,7 +796,7 @@ namespace GridGameAPI.ActiveGames.SignalRHubs
             await BroadcastPresence(session);
         }
 
-        /// <summary>Pushes a state change to everyone in the game, and the refreshed board analysis to named accounts.
+        /// <summary>Pushes a state change to everyone in the game, and the refreshed board analysis.
         /// Must be called under MoveLock, after the change has been applied to session.GridGame</summary>
         private async Task BroadcastStateChange(GameSession session, (int X, int Y, int NewValue)[] updates, uint previousStateHash, bool requiresAck)
         {
@@ -587,17 +821,20 @@ namespace GridGameAPI.ActiveGames.SignalRHubs
                 turnNumber = game.TurnNumber,
                 isGameOver = game.IsGameOver,
                 resignedPlayerNumber = game.ResignedPlayerNumber,
+                resignedOnTime = game.ResignedOnTime,
+                autoResolving = session.AutoResolving,
+                clock = GameClock.Wire(game, DateTime.UtcNow),
                 previousStateHash,
                 stateHash = session.StateHash,
                 requiresAck,
                 informallyDecidedFor = session.Analysis?.InformallyDecidedFor,
             });
 
-            //Live board analysis is a named-account perk like final scores, so it's only sent to connections known
-            //to be on a named account (see OnConnectedToGame)
-            if (session.Analysis is not null && !session.NamedAccountConnections.IsEmpty)
+            //Everyone gets the analysis, since the territory overlay and the move hints depend on it. Only the statistics
+            //table is a named-account perk, and the client decides that
+            if (session.Analysis is not null)
             {
-                await Clients.Clients(session.NamedAccountConnections.Keys.ToList())
+                await Clients.Clients(session.Connections.Keys.ToList())
                     .SendAsync("boardAnalysisUpdated", BoardAnalysis.ToWire(session.Analysis));
             }
         }

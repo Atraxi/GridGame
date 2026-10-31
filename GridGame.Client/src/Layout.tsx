@@ -1,5 +1,7 @@
 import { Link, Outlet } from "react-router"
+import { useEffect } from "react"
 import { useIsGuest, useUserName } from "./auth"
+import { loadViewerPalette } from "./model/palette"
 import { useServerWaking } from "./serverWake"
 import "./Layout.css"
 
@@ -7,6 +9,9 @@ export default function Layout() {
 	const guest = useIsGuest()
 	const userName = useUserName()
 	const waking = useServerWaking()
+
+	//Whoever is signed in sees the seat colours they rebound on their account page, on every page
+	useEffect(() => { loadViewerPalette() }, [userName])
 
 	return (
 		<>
@@ -24,7 +29,7 @@ export default function Layout() {
 			</nav>
 			{waking && (
 				<p className="wake-notice" role="status">
-					Waking the server up - after it's been idle for a while, this can take up to a minute...
+					Waking the server - up to a minute...
 				</p>
 			)}
 			<Outlet />
