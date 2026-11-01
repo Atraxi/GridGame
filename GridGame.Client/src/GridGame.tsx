@@ -824,7 +824,7 @@ function GridGamePage() {
                     )}
                 </p>
             ) : null}
-            {analysis && !gameState.isGameOver && (
+            {analysis && (
                 <p className="territory-toggle">
                     <label>
                         <input type="checkbox" checked={showTerritory} onChange={event => setShowTerritory(event.target.checked)} />
@@ -857,7 +857,7 @@ function GridGamePage() {
                     opponentsOf={opponentMovesShown && !viewingHistory ? myPlayerNumber : null}
                     jumpChoice={viewingHistory ? null : jumpChoice}
                     //The analysis describes the live board, so it would be misleading over a past one
-                    analysis={showTerritory && !gameState.isGameOver && !viewingHistory ? analysis : null}
+                    analysis={showTerritory && !viewingHistory ? (gameState.isGameOver ? finalResults?.analysis ?? analysis : analysis) : null}
                     blocked={gameState.isGameOver || viewingHistory ? null : analysis}
                     historyMarks={viewingHistory ? historyMarks : pendingMarks}
                     onTileClicked={onTileClicked}

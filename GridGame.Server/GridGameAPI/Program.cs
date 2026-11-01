@@ -1,5 +1,6 @@
 using GridGameAPI.ActiveGames;
 using GridGameAPI.ActiveGames.SignalRHubs;
+using GridGameAPI.Bots;
 using GridGameAPI.Configuration;
 using GridGameAPI.Database;
 using GridGameAPI.Model;
@@ -44,6 +45,9 @@ builder.Services.AddIdentity<Player, IdentityRole>(options =>
 
 builder.Services.AddSingleton<GameSessionManager>();
 builder.Services.AddSingleton<GameListVersion>();
+builder.Services.AddSingleton<BotRegistry>();
+builder.Services.AddSingleton<BotRunner>();
+builder.Services.AddScoped<GameEngine>();
 builder.Services.AddScoped<JwtManager>();
 builder.Services.AddScoped<RefreshTokenManager>();
 builder.Services.AddScoped<PasswordResetManager>();

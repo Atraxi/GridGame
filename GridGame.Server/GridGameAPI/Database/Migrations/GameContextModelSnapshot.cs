@@ -91,6 +91,9 @@ namespace GridGameAPI.Database.Migrations
                     b.Property<int>("ActionsRemainingInTurn")
                         .HasColumnType("int");
 
+                    b.PrimitiveCollection<string>("BotNames")
+                        .HasColumnType("nvarchar(max)");
+
                     b.Property<int>("ClockBaseSeconds")
                         .HasColumnType("int");
 

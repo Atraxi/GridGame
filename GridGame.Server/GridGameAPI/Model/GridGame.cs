@@ -22,6 +22,9 @@ namespace GridGameAPI.Model
 
         public int ActionsRemainingInTurn { get; set; } = 3;
 
+        /// <summary>Per seat (index 0 = player 1): class name of the IBot playing it (see BotRegistry), or null for a human</summary>
+        public string?[]? BotNames { get; set; }
+
         public required IEnumerable<Player> Players { get; set; }
 
         public required int[,] GameBoard {  get; set; }

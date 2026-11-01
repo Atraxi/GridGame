@@ -1,4 +1,5 @@
 using GridGameAPI.ActiveGames;
+using GridGameAPI.Bots;
 using GridGameAPI.Database;
 using GridGameAPI.Model;
 using GridGameAPI.UtilityInfrastructure;
@@ -11,7 +12,7 @@ namespace GridGameAPI.Controllers
 {
     [ApiController]
     [Route("[controller]/[action]")]
-    public class GamesController(GameSessionManager _sessionManager, GameContext _context, GameListVersion _listVersion) : ControllerBase
+    public class GamesController(GameSessionManager _sessionManager, GameContext _context, GameListVersion _listVersion, BotRegistry _bots) : ControllerBase
     {
         private const int PAGE_SIZE = 20;
 
@@ -150,6 +151,10 @@ namespace GridGameAPI.Controllers
             });
         }
 
+        [Authorize(Policy = AuthPolicy.NamedAccountOnly)]
+        [HttpGet]
+        public IEnumerable<string> GetBots() => _bots.Names;
+
         //Hosting a game is a privilege of permanent named accounts, same as designing maps. Games are always hosted
         //from a saved Map, which supplies the board, player count, and actions/turn - not posted freeform by the client
         [Authorize(Policy = AuthPolicy.NamedAccountOnly)]
@@ -182,7 +187,23 @@ namespace GridGameAPI.Controllers
                 return BadRequest(clockError);
             }
 
-            var newGame = GameHosting.NewGame(map, request.Name, isInviteOnly: invitedIds.Count > 0);
+            var botNames = request.BotNames is { Length: > 0 } ? request.BotNames : null;
+            if (botNames is not null)
+            {
+                if (botNames.Length != map.PlayerCount)
+                {
+                    return BadRequest("Give one entry per seat.");
+                }
+                if (botNames.Any(name => name is not null && !_bots.Names.Contains(name)))
+                {
+                    return BadRequest("No bot with that name exists.");
+                }
+            }
+
+            //With a single human seat the host must be the one to fill it, so such a game is private to them
+            var humanSeats = botNames?.Count(name => name is null) ?? map.PlayerCount;
+            var newGame = GameHosting.NewGame(map, request.Name, isInviteOnly: invitedIds.Count > 0 || humanSeats == 1);
+            newGame.BotNames = botNames;
             GameClock.Configure(newGame, request.ClockMode, request.ClockBaseSeconds, request.ClockIncrementSeconds);
             _context.GridGames.Add(newGame);
             if (newGame.IsInviteOnly)

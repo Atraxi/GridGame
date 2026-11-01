@@ -21,6 +21,8 @@ export default function StartGameDialog({ onClose }: { onClose: () => void }) {
 	const [bankMinutes, setBankMinutes] = useState(5)
 	const [incrementSeconds, setIncrementSeconds] = useState(3)
 	const [turnSeconds, setTurnSeconds] = useState(30)
+	const [bots, setBots] = useState<string[]>([])
+	const [seatBots, setSeatBots] = useState<Record<number, string>>({}) //seat index -> bot name; absent = human
 
 	//Speed chess is just a preset of the chess clock: a short bank with a little added back each turn
 	const clockSettings = () => {
@@ -53,6 +55,13 @@ export default function StartGameDialog({ onClose }: { onClose: () => void }) {
 	}
 
 	useEffect(() => {
+		authorizedFetch('/Games/GetBots')
+			.then(response => response.ok ? response.json() : [])
+			.then((data: string[]) => setBots(data))
+			.catch(() => setBots([]))
+	}, [])
+
+	useEffect(() => {
 		authorizedFetch('/Maps/GetSummaries?page=1')
 			.then(response => response.json())
 			.then((data: MapSummary[]) => {
@@ -73,6 +82,10 @@ export default function StartGameDialog({ onClose }: { onClose: () => void }) {
 		}
 	}
 
+	const seatCount = maps?.find(map => map.id === selectedMapId)?.playerCount ?? 0
+	const botNames = Array.from({ length: seatCount }, (_, seat) => seatBots[seat] || null)
+	const hasBots = botNames.some(name => name !== null)
+
 	const submit = () => {
 		if (selectedMapId == null) {
 			return
@@ -81,7 +94,7 @@ export default function StartGameDialog({ onClose }: { onClose: () => void }) {
 		setError(null)
 		authorizedFetch('/Games/CreateFromMap', {
 			method: 'POST',
-			body: JSON.stringify({ mapId: selectedMapId, name, invitedPlayerIds: inviteOnly ? [...invited] : [], ...clockSettings() }),
+			body: JSON.stringify({ mapId: selectedMapId, name, invitedPlayerIds: inviteOnly ? [...invited] : [], botNames: hasBots ? botNames : null, ...clockSettings() }),
 		})
 			.then(async response => {
 				if (!response.ok) {
@@ -120,6 +133,18 @@ export default function StartGameDialog({ onClose }: { onClose: () => void }) {
 						Game name
 						<input value={name} onChange={event => setName(event.target.value)} />
 					</label>
+					{bots.length > 0 && seatCount > 0 && <fieldset className="dialog__fieldset">
+							<legend>Seats</legend>
+							{botNames.map((name, seat) => (
+								<label key={seat} className="dialog__field">
+									Player {seat + 1}
+									<select value={name ?? ''} onChange={event => setSeatBots(current => ({ ...current, [seat]: event.target.value }))}>
+										<option value="">Human</option>
+										{bots.map(bot => <option key={bot} value={bot}>{bot} (bot)</option>)}
+									</select>
+								</label>
+							))}
+						</fieldset>}
 					<fieldset className="dialog__fieldset">
 						<legend>Who can take a seat</legend>
 						<label className="dialog__choice">

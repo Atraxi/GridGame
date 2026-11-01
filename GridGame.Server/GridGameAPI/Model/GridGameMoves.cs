@@ -1,3 +1,5 @@
+using GridGameAPI.Bots;
+
 namespace GridGameAPI.Model
 {
     /// <summary>Pure board math for the two move types: spawn (1 tile, 8 directions) and jump (2 tiles, 8 directions, origin dies)</summary>
@@ -33,6 +35,32 @@ namespace GridGameAPI.Model
         public static bool IsBlocked(int[,] board, CellInsight[,]? insight, int x, int y) =>
             insight is not null && board[x, y] == UtilityInfrastructure.TileState.Unclaimed &&
             insight[x, y] is CellInsight.UncontestedSecure or CellInsight.UncontestedAtRisk;
+
+        /// <summary>Every move `player` may make, as GridGameHub.RequestMove would treat it: onto a cell they can spawn
+        /// to, a spawn; onto any other cell they can reach, one jump per tile they could jump from</summary>
+        public static List<Move> LegalMoves(int[,] board, int player, CellInsight[,]? insight)
+        {
+            var moves = new List<Move>();
+            for (var x = 0; x < board.GetLength(0); x++)
+            {
+                for (var y = 0; y < board.GetLength(1); y++)
+                {
+                    if (board[x, y] == player || board[x, y] == UtilityInfrastructure.TileState.Dead || IsBlocked(board, insight, x, y))
+                    {
+                        continue;
+                    }
+                    if (CanSpawnTo(board, player, x, y))
+                    {
+                        moves.Add(new Move(x, y));
+                    }
+                    else
+                    {
+                        moves.AddRange(JumpOriginsFor(board, player, x, y).Select(origin => new Move(x, y, origin.X, origin.Y)));
+                    }
+                }
+            }
+            return moves;
+        }
 
         /// <summary>The next player after `current` with a legal move, or null if nobody has one</summary>
         public static int? NextMover(int[,] board, int playerCount, int current, CellInsight[,]? insight)

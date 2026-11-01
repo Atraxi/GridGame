@@ -1,3 +1,4 @@
+using GridGameAPI.Bots;
 using GridGameAPI.Model;
 using System.Collections.Concurrent;
 
@@ -44,6 +45,21 @@ namespace GridGameAPI.ActiveGames
 
         /// <summary>Seated users who are connected but have stopped acknowledging state pushes</summary>
         public ConcurrentDictionary<string, byte> UnresponsiveUsers { get; } = new();
+
+        /// <summary>A bot holds its seat under this id; it has no connections but always counts as present</summary>
+        public static string BotUserId(int seat) => $"bot:{seat}";
+
+        public static bool IsBot(string userId) => userId.StartsWith("bot:");
+
+        /// <summary>The bot in each seat, by player number. Fixed when the session is loaded</summary>
+        public Dictionary<int, IBot> Bots { get; } = [];
+
+        /// <summary>True once BotRunner is playing this session's bots. Only written under MembershipLock</summary>
+        public bool BotRunning { get; set; }
+
+        /// <summary>Seats whose bot overran its time limit and may still be running, so it isn't asked again: a random
+        /// legal move is played for it from then on. Only touched by BotRunner</summary>
+        public HashSet<int> StuckBotSeats { get; } = [];
 
         public required GridGame GridGame { get; set; }
 
@@ -109,7 +125,8 @@ namespace GridGameAPI.ActiveGames
                 {
                     return (object)new { playerNumber, userName = (string?)null, status = "open", locked = false, colourPrimary = (string?)null, colourSecondary = (string?)null };
                 }
-                var status = !connectedUsers.Contains(userId) ? (SeenUsers.ContainsKey(userId) ? "disconnected" : "away")
+                var status = IsBot(userId) ? "connected"
+                    : !connectedUsers.Contains(userId) ?(SeenUsers.ContainsKey(userId) ? "disconnected" : "away")
                     : UnresponsiveUsers.ContainsKey(userId) ? "unresponsive"
                     : "connected";
                 return (object)new { playerNumber, userName = UserNames.GetValueOrDefault(userId), status, locked = LockedSeats.ContainsKey(userId), colourPrimary = Colours.GetValueOrDefault(userId).Primary, colourSecondary = Colours.GetValueOrDefault(userId).Secondary };
