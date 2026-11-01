@@ -28,7 +28,10 @@ builder.Services.Configure<AppSettings>(builder.Configuration.GetSection("App"))
 //a retrying strategy would require wrapping in strategy.ExecuteAsync
 builder.Services.AddDbContext<GameContext>(options =>
     options.UseSqlServer(builder.Configuration.GetConnectionString("GridGame"), sqlServer =>
-        sqlServer.EnableRetryOnFailure(maxRetryCount: 8, maxRetryDelay: TimeSpan.FromSeconds(20), errorNumbersToAdd: null)));
+        sqlServer.EnableRetryOnFailure(maxRetryCount: 8, maxRetryDelay: TimeSpan.FromSeconds(20), errorNumbersToAdd: null)
+                 //Connection Timeout only covers opening the connection; a command defaults to 30s, which a database
+                 //still resuming from auto-pause can exceed
+                 .CommandTimeout(90)));
 
 builder.Services.AddIdentity<Player, IdentityRole>(options =>
 {
@@ -139,6 +142,22 @@ else
 app.UseDefaultFiles();
 app.UseStaticFiles();
 
+//A database that is unreachable or timing out (typically waking from auto-pause) is a "try again" for the user, not a
+//server bug - so it's answered with a 503 and a readable message, which the client shows as the error
+app.Use(async (context, next) =>
+{
+    try
+    {
+        await next();
+    }
+    catch (Exception exception) when (!context.Response.HasStarted && IsDatabaseUnavailable(exception))
+    {
+        app.Logger.LogWarning(exception, "Database unavailable for {Path}", context.Request.Path);
+        context.Response.StatusCode = StatusCodes.Status503ServiceUnavailable;
+        await context.Response.WriteAsync("The database is waking up. Please try again in a minute.");
+    }
+});
+
 app.UseAuthentication();
 app.UseAuthorization();
 
@@ -193,6 +212,18 @@ if (app.Environment.IsDevelopment())
 }
 
 app.Run();
+
+static bool IsDatabaseUnavailable(Exception exception)
+{
+    for (var inner = exception; inner is not null; inner = inner.InnerException)
+    {
+        if (inner is System.Data.Common.DbException or TimeoutException)
+        {
+            return true;
+        }
+    }
+    return false;
+}
 
 //Azure SQL's serverless tier auto-pauses after an hour idle, and the request that wakes it up is rejected while the
 //resume completes - roughly a minute. Without the retry, a deploy onto a cold database crashes the app on startup
